@@ -6,7 +6,11 @@ This repository starts the pipeline described in [the project handoff](CS2_Visio
 
 The Windows extractor and Python data tools work locally. **All three supplied demos have been processed, yielding 4,933,316 reconstructed commands. They are diagnostic outputs, not yet a training-ready dataset:** validation found missing initial command baselines and negative subtick timestamps. [The initial run report](docs/INITIAL_RUN.md) records the results and remaining work.
 
-**No real replay frames have been generated yet.** Replay video needs a compatible Linux CS2/renderer worker and measured capture timing. A demo contains game state and commands; obtaining pixels requires replaying it in CS2. See [rendering setup and current blockers](docs/RENDERING.md).
+Replay video can use the [experimental native Windows worker](docs/WINDOWS_RENDERING.md) or a configured Linux worker. A demo contains game state and commands; obtaining pixels requires replaying it in CS2. Actual capture and timing acceptance results are tracked in [current status](docs/progress/STATUS.md).
+
+The native Windows pilot now renders real two- and five-second Dust2 clips at
+1280x720/32 fps, with raw frames and MP4 output. Frame-to-input synchronization
+and training-quality acceptance remain unfinished.
 
 ## Included
 
@@ -55,7 +59,7 @@ python tools/renderer/setup.py --go .tools/go/bin/go.exe --build
 tools/renderer/build/dem-render.exe job --spec data/jobs/first.json --output data/rendered/first
 ```
 
-The last command is a dry run. A checked-in-source implementation and a real-demo dry run are verified; game rendering remains untested. Follow [RENDERING.md](docs/RENDERING.md) for execution on a compatible Linux worker and the remaining capture instrumentation. The installed Windows game is newer than the pinned plugin's supported build.
+The last command is a Go-adapter dry run. Follow [WINDOWS_RENDERING.md](docs/WINDOWS_RENDERING.md) for the native Windows pilot or [RENDERING.md](docs/RENDERING.md) for Linux execution and remaining capture instrumentation. The installed Windows game is newer than the pinned plugin's target build, so the native trial requires an explicit experimental version override.
 
 Once a real clip has verified POV, measured capture boundaries, and recorded video PTS:
 

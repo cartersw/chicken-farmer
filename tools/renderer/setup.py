@@ -11,6 +11,13 @@ import sys
 ROOT = Path(__file__).resolve().parent
 
 
+def local_tool(name: str) -> str:
+    """Find a PATH tool or an executable installed beside this Python."""
+    executable = name + (".exe" if sys.platform == "win32" else "")
+    adjacent = Path(sys.executable).parent / executable
+    return shutil.which(name) or (str(adjacent) if adjacent.is_file() else name)
+
+
 def run(*args: str, cwd: Path | None = None) -> str:
     result = subprocess.run(args, cwd=cwd, text=True, capture_output=True, check=True)
     if result.stderr:
@@ -21,8 +28,10 @@ def run(*args: str, cwd: Path | None = None) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", action="store_true", help="Compile Go renderer (any OS)")
-    parser.add_argument("--build-plugin", action="store_true", help="Compile Linux C++ plugin; never install it")
+    parser.add_argument("--build-plugin", action="store_true", help="Compile native C++ plugin; never install it or launch CS2")
     parser.add_argument("--go", default="go", help="Go executable")
+    parser.add_argument("--cmake", default=local_tool("cmake"), help="CMake executable")
+    parser.add_argument("--generator", help="Optional CMake generator, e.g. Visual Studio 18 2026")
     args = parser.parse_args()
     lock = json.loads((ROOT / "upstream.lock.json").read_text(encoding="utf-8"))
     checkout = ROOT / "upstream"
@@ -49,11 +58,23 @@ def main() -> None:
         binary = ROOT / "build" / ("dem-render.exe" if sys.platform == "win32" else "dem-render")
         print(run(args.go, "build", "-o", str(binary), ".", cwd=checkout / "dem-render"))
     if args.build_plugin:
-        if not sys.platform.startswith("linux"):
-            raise RuntimeError("The pinned plugin build is Linux-only; use a Linux render worker")
-        plugin_build = ROOT / "build" / "plugin"
-        print(run("cmake", "-S", str(checkout / "cs2-server-plugin"), "-B", str(plugin_build), "-DCMAKE_BUILD_TYPE=Release"))
-        print(run("cmake", "--build", str(plugin_build)))
+        if sys.platform == "win32":
+            plugin_source = ROOT / "plugin-windows"
+            plugin_build = ROOT / "build" / "plugin-windows"
+            configure = [args.cmake, "-S", str(plugin_source), "-B", str(plugin_build),
+                         f"-DPython3_EXECUTABLE={sys.executable}"]
+            if not args.generator or args.generator.startswith("Visual Studio"):
+                configure.extend(["-A", "x64"])
+        elif sys.platform.startswith("linux"):
+            plugin_source = checkout / "cs2-server-plugin"
+            plugin_build = ROOT / "build" / "plugin"
+            configure = [args.cmake, "-S", str(plugin_source), "-B", str(plugin_build), "-DCMAKE_BUILD_TYPE=Release"]
+        else:
+            raise RuntimeError("Plugin build supports Windows and Linux only")
+        if args.generator:
+            configure.extend(["-G", args.generator])
+        print(run(*configure))
+        print(run(args.cmake, "--build", str(plugin_build), "--config", "Release"))
     print(f"Prepared {lock['repository']} at {head}. No Steam launch or game installation changes.")
 
 
@@ -63,5 +84,8 @@ if __name__ == "__main__":
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"renderer setup failed: {exc}", file=sys.stderr)
         if isinstance(exc, subprocess.CalledProcessError):
-            print(exc.stderr, file=sys.stderr)
+            if exc.stdout:
+                print(exc.stdout, file=sys.stderr)
+            if exc.stderr:
+                print(exc.stderr, file=sys.stderr)
         raise SystemExit(1)

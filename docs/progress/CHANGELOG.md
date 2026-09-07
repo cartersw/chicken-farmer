@@ -2,6 +2,20 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-07 — Native Windows replay capture delivered
+
+Implemented `tools/renderer/windows.py` and the x64 C++ adaptation under `plugin-windows/`. Installed local CMake/FFmpeg and the missing Visual Studio C++/Windows SDK components. The worker validates the demo/job, stages an isolated plugin, bounds the owned CS2 process and disk use, archives raw TGA frames, encodes H.264 and verifies decoded PTS/count/dimensions. It records a recovery journal and restores the original gameinfo bytes after both success and failure.
+
+Diagnosed the initial real-game failures using startup logs and crash dumps. Backported the upstream July ICvar layout correction and current replay interface positions, corrected the shutdown callback signature and added bounded frame-hook initialization. The final DLL renders successfully on local CS2 1.41.7.8.
+
+- Four successful real captures: two runs of **64 frames / 2 seconds** and two of **160 frames / 5 seconds**, all **1280x720 at 32 fps**.
+- Inspected ay0k's POV and compared encoded previews with an actual CS2 window screenshot; color/orientation agreed qualitatively.
+- Confirmed normal CS2 exit and byte-exact gameinfo restoration; failure artifacts 001–003 remain available.
+- **44 Python tests passed**, including 10 Windows tests with real FFmpeg color/origin/PTS and transaction-failure checks.
+- Added [Windows setup/usage](../WINDOWS_RENDERING.md) and updated this tracker.
+
+Remaining: measured frame/action timing, competitive-phase selection, transient HUD cleanup and longer jobs. Software H.264 works; this FFmpeg's NVENC requires a newer driver. Matching repeated counts do not establish deterministic pixels or timing. All render outputs remain training-unverified.
+
 ## 2026-09-07 — Progress tracking established
 
 Created `docs/progress/` with an index, implementation/status inventory, ordered remaining work and this completion log. Cross-checked the real audited parse/validation/normalization reports and current source inventory. Added a link from the repository README. Corrected older alignment examples to use audited parser outputs and updated the rendering guide to identify the covered slot-3 job.

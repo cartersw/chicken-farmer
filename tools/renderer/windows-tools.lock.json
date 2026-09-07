@@ -1,0 +1,14 @@
+{
+  "cmake_python_package": "cmake==4.2.3",
+  "ffmpeg_version": "9.0.1-essentials_build-www.gyan.dev",
+  "ffmpeg_archive_source": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+  "ffmpeg_archive_sha256": "fec81ae03971d9dd4be3ebe02e263bd2ec1d789483f931bdba5f5715e65da2e9",
+  "ffmpeg_source_is_rolling": true,
+  "ffmpeg_local_bin": ".tools/ffmpeg/ffmpeg-9.0.1-essentials_build/bin",
+  "default_encoder": "libx264",
+  "visual_studio_components": [
+    "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+    "Microsoft.VisualStudio.Component.Windows11SDK.26100"
+  ],
+  "note": "Records this worker's tools. Never accept a rolling archive with a different checksum as this version. Local libx264 smoke test passed; h264_nvenc with this FFmpeg required NVENC API 13.1, while the installed driver exposed 13.0."
+}

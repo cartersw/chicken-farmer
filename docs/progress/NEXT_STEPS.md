@@ -14,15 +14,19 @@
 - [x] Pin/build the Reka adapter and dry-run a covered real-demo job.
 - [x] Implement measured-frame alignment and the viewer, verified with synthetic fixtures.
 - [x] Document results, blockers, artifacts and remaining work.
+- [x] Build the native Windows plugin/worker and capture real two- and five-second Dust2 clips, including repeat runs and a live-window color check.
 
 ## 1. Produce the first real replay clip
 
-- [ ] **Choose and prepare a rendering environment.** Start from the pinned renderer's supported Linux path, or explicitly scope a native Windows port. Verify the graphics/encoder path and install the necessary game, build and video tools. Completion: the environment doctor and actual runtime checks show the required dependencies are available.
-- [ ] **Establish game/plugin compatibility.** Rebuild/adapt and test against the intended CS2 build; record game, plugin, renderer and ffmpeg versions. Completion: the plugin loads and replays a supplied demo reliably. Changing a version string alone does not count.
-- [ ] **Capture the covered Dust2 interval.** Use `data/jobs/dust2-audited-first.json` as the starting candidate. Completion: a real video decodes, shows the requested player's POV and intended interval, and has no obvious capture corruption. Record the actual visual settings, hashes and frame count.
+- [x] **Choose and prepare a rendering environment.** Native Windows CS2, x64 MSVC/SDK, CMake and software FFmpeg encoding are installed and exercised. Linux is unnecessary for this worker.
+- [x] **Establish basic local game/plugin compatibility.** Corrected the demonstrated CVar and replay interface mismatches; the plugin now loads, renders short supplied-demo intervals and exits successfully on CS2 1.41.7.8. Versions/hashes are recorded. Other game versions remain unverified.
+- [x] **Capture a short covered Dust2 pilot.** Two-second and five-second runs produce 64/160 frames, correct dimensions/PTS and the requested ay0k POV. Repeated runs have matching counts; the actual game-window screenshot confirms qualitative colors/orientation.
+- [ ] **Accept a clean competitive interval and expand capture.** Remove/avoid the transient spectator HUD panel, exclude the initial knife/setup phase, and validate longer jobs. The current worker deliberately caps captures at five seconds and the full `[1279,2458)` source job has not been rendered as one clip.
 - [ ] **Check repeatability.** Repeat the same requested interval into a new output location. Completion: POV, visual profile and measured timing are reproducible within documented tolerances.
 
 A decodable clip completes capture, not synchronization. Keep its timing/POV claims unverified until the relevant checks pass. Detailed setup: [RENDERING.md](../RENDERING.md).
+
+Run evidence: `data/rendered/windows-pilot-004/` through `007/`. Failures 001–003 remain documented and were resolved by concrete SDK/interface fixes. All completed attempts restored `gameinfo.gi`; normal CS2 preference changes are outside that transaction.
 
 ## 2. Establish correct frame and action timing
 

@@ -2,23 +2,30 @@
 
 The renderer adapter prepares **one player interval** from the canonical extractor's job JSON and drives Reka's existing CS2 replay capture. The Go extractor is the action source. Rendering needs a compatible CS2 installation and graphics environment; a `.dem` contains replay state, not stored video frames.
 
-## Current result and local blocker
+## Current result
 
-Source was downloaded and pinned to [`02b09ffeaf7c3a0685a3e3e44ad6b2519f682c22`](https://github.com/reka-ai/cs2-dem-renderer/tree/02b09ffeaf7c3a0685a3e3e44ad6b2519f682c22). The adapter can validate/print a job without opening the game. **No replay has been rendered or timing-calibrated in this Windows workspace.**
+**Windows route:** use the experimental native worker and build instructions in
+[WINDOWS_RENDERING.md](WINDOWS_RENDERING.md). It uses temporary plugin staging,
+native CS2, software H.264 and the same canonical render jobs. The Go worker
+documented below retains its original Linux execution path. See the
+[progress tracker](progress/STATUS.md) for actual Windows trial results.
+
+Source was downloaded and pinned to [`02b09ffeaf7c3a0685a3e3e44ad6b2519f682c22`](https://github.com/reka-ai/cs2-dem-renderer/tree/02b09ffeaf7c3a0685a3e3e44ad6b2519f682c22). **Native Windows replay capture now works for short Dust2 pilots:** two-second runs produced 64 frames and a five-second run produced 160 frames, all at 1280x720 and 32 fps. Actual frame/action synchronization is still uncalibrated.
 
 The Go adapter built successfully and its three targeted tests passed. The current dry-run job, `data/jobs/dust2-audited-first.json`, passed for the supplied Dust2 demo: round 1, player slot 3, ticks `[1279, 2458)`, at 32 fps and 1280x720. It covers 1,179 recorded commands across all 1,179 ticks. The earlier `dust2-first.json` slot-2 candidate was superseded because it lacked canonical commands in that interval. The Windows execution guard was also verified to reject before creating an output directory or opening Steam. See [the progress tracker](progress/README.md) for the current implementation checkpoint.
 
-Read-only inspection on 2026-09-07 found Steam and native Windows CS2 installed at `C:/Program Files (x86)/Steam`. `game/csgo/steam.inf` reports `PatchVersion=1.41.7.8`, `ClientVersion=2000899`, `SourceRevision=10948930`. The pinned plugin targets **1.41.6.5**, and its build/launcher/encoder require Linux. Updating that pin alone does not establish compatibility. The plugin must be rebuilt/adapted and verified against the target CS2 build before rendering. A Linux worker also needs the Linux game installation; pointing WSL at `cs2.exe` does not supply it.
+Read-only inspection on 2026-09-07 found Steam and native Windows CS2 installed at `C:/Program Files (x86)/Steam`. `game/csgo/steam.inf` reports `PatchVersion=1.41.7.8`, `ClientVersion=2000899`, `SourceRevision=10948930`. The pinned upstream plugin targets **1.41.6.5**, and its original build/launcher/encoder require Linux. The maintained Windows adaptation builds separately. Updating the target pin alone does not establish compatibility. A Linux worker also needs the Linux game installation; pointing WSL at `cs2.exe` does not supply it.
 
 ```powershell
 python tools/renderer/doctor.py
 ```
 
-The doctor reads files and PATH only. It reports dependencies and version/platform blockers.
+The doctor reads files, tool locations and process state. It reports dependencies and version/platform blockers without launching CS2.
 
 ## What is included
 
 - `tools/renderer/upstream.lock.json`: upstream commit and known plugin target.
+- `tools/renderer/windows.py` and `plugin-windows/`: experimental native Windows pilot worker and C++ adaptation; see the separate Windows guide.
 - `tools/renderer/setup.py`: clone/check the exact commit, apply the narrow patch, copy the maintained Go adapter, optionally build. It refuses conflicting source changes and never installs into CS2 or launches Steam.
 - `tools/renderer/overlay/chicken_job.go`: `dem-render job --spec ... --output ...`, with dry-run as the default and `--execute` for a configured Linux worker.
 - `tools/renderer/patches/0001-runtime-profile-and-clean-worker.patch`: HUD/viewmodel enabled, x-ray disabled, no interruption of an existing CS2 session, no blanket deletion of existing movie captures, and encoder shutdown on failed jobs.

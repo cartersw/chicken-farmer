@@ -1,5 +1,9 @@
 # Initial implementation and demo audit
 
+This records the initial checkpoint before the native Windows port. Subsequent
+Windows rendering now produces real short clips; see [current status](progress/STATUS.md)
+and [Windows rendering](WINDOWS_RENDERING.md). The extraction findings below remain applicable.
+
 Run date: 2026-09-07. The input recordings are the three supplied MOUZ NXT vs Misa ESL demos in the repository. They were read without modification. Final audited outputs are in `data/parsed/v2-audited/`; earlier `v1`, `v2`, and `data/diagnostics/` outputs are retained development diagnostics and should not be used for dataset preparation.
 
 ## Actual extraction results
