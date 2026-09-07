@@ -1,0 +1,9 @@
+{
+  "profile": "render32-v1",
+  "fps": 32,
+  "width": 640,
+  "height": 360,
+  "hud": true,
+  "viewmodel": true,
+  "timing_requirement": "measured frame capture boundaries, execution clock calibration, verified POV"
+}

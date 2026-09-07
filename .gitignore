@@ -1,0 +1,15 @@
+# Source recordings and generated datasets stay local.
+*.dem
+/data/
+/.tools/
+/.cache/
+/.venv/
+/bin/
+/tools/renderer/upstream/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.env

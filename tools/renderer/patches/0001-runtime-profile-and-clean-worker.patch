@@ -1,0 +1,143 @@
+diff --git a/dem-render/encode.go b/dem-render/encode.go
+index ceecbcf..db82d29 100644
+--- a/dem-render/encode.go
++++ b/dem-render/encode.go
+@@ -30,6 +30,7 @@ type VideoEncoderManager struct {
+ 	mu              sync.Mutex
+ 	wg              sync.WaitGroup
+ 	stopWatch       chan struct{}
++	stopOnce        sync.Once
+ 	activePE        *pipeEncoder
+ 	allPEs          []*pipeEncoder
+ 	dirIndex        int
+@@ -112,22 +113,24 @@ func (m *VideoEncoderManager) Start() error {
+ 
+ // Stop stops the encoder manager and waits for all encoding jobs to complete.
+ func (m *VideoEncoderManager) Stop() {
+-	fmt.Println("\nStopping video encoder manager...")
+-	close(m.stopWatch)
+-	m.wg.Wait() // wait for watchDirectory to exit
+-
+-	// Signal the active pipe encoder to drain remaining frames and finish
+-	m.mu.Lock()
+-	if m.activePE != nil {
+-		m.activePE.stop()
+-	}
+-	pes := append([]*pipeEncoder(nil), m.allPEs...)
+-	m.mu.Unlock()
++	m.stopOnce.Do(func() {
++		fmt.Println("\nStopping video encoder manager...")
++		close(m.stopWatch)
++		m.wg.Wait() // wait for watchDirectory to exit
++
++		// Signal the active pipe encoder to drain remaining frames and finish
++		m.mu.Lock()
++		if m.activePE != nil {
++			m.activePE.stop()
++		}
++		pes := append([]*pipeEncoder(nil), m.allPEs...)
++		m.mu.Unlock()
+ 
+-	for _, pe := range pes {
+-		pe.wait()
+-	}
+-	fmt.Println("All encoding jobs completed")
++		for _, pe := range pes {
++			pe.wait()
++		}
++		fmt.Println("All encoding jobs completed")
++	})
+ }
+ 
+ // EncodedCount returns the number of videos successfully encoded so far.
+diff --git a/dem-render/main.go b/dem-render/main.go
+index ecac21c..c8089f8 100644
+--- a/dem-render/main.go
++++ b/dem-render/main.go
+@@ -357,6 +357,8 @@ func checkCS2Version(demoPath string) error {
+ const usageText = `dem-render — render CS2 .dem demo files to per-player-round videos + parquet metadata
+ 
+ Usage:
++	 dem-render job --spec JOB --output DIR [--execute]
++	                                       Canonical one-player job (dry-run by default)
+   dem-render [flags] <demo-file-path>     Render a single demo
+   dem-render worker [flags]               Batch-render a directory of demos
+   dem-render --help                       Show this help
+@@ -482,7 +484,7 @@ func runSingle(args []string) {
+ 	}
+ 	fmt.Printf("Total player alive time: (%.0f minutes)\n", totalAliveTime/60.0)
+ 
+-	fmt.Println("\nTotal time alive per player:\n")
++	fmt.Println("\nTotal time alive per player:")
+ 	for _, playerMatch := range playerRoundData {
+ 		fmt.Printf("%s - %d - %d - %s: spawn tick: %d, death tick: %d, alive time: (%.2f seconds), expected frames: %d\n",
+ 			playerMatch.UUID, playerMatch.UserId, playerMatch.SteamId, playerMatch.Name, playerMatch.SpawnTick, playerMatch.DeathTick, playerMatch.Duration, playerMatch.ExpectedFrames)
+diff --git a/dem-render/render.go b/dem-render/render.go
+index bd443f5..0ca628f 100644
+--- a/dem-render/render.go
++++ b/dem-render/render.go
+@@ -91,10 +91,10 @@ func createActionsJSONForIntervals(demoPath string, intervals []playerRoundInfo,
+ 		"cl_hud_telemetry_ping_show 0",
+ 		"cl_hud_telemetry_serverrecvmargin_graph_show 0",
+ 		"r_show_build_info 0",
+-		"cl_draw_only_deathnotices 1",
++		"cl_draw_only_deathnotices 0",
+ 		"spec_show_xray 0",
+-		"cl_drawhud 0",
+-		"r_drawviewmodel 0",
++		"cl_drawhud 1",
++		"r_drawviewmodel 1",
+ 		"cl_demo_predict 0",
+ 		"cl_trueview_show_status 0",
+ 		"",
+@@ -297,8 +297,10 @@ func launchCS2(demoPath string, width int, height int, logFile string) (*exec.Cm
+ 		return nil, err
+ 	}
+ 
+-	// Kill any stale CS2 process from a previous crashed or restarted run.
+-	exec.Command("pkill", "-x", "cs2").Run()
++	// A render worker must be idle; never interrupt an unrelated game session.
++	if exec.Command("pgrep", "-x", "cs2").Run() == nil {
++		return nil, fmt.Errorf("CS2 already running; close it before starting a render job")
++	}
+ 
+ 	demoPath, err := filepath.Abs(demoPath)
+ 	if err != nil {
+@@ -601,26 +603,29 @@ func RenderIntervals(intervals []playerRoundInfo, config RenderConfig) (int, int
+ 
+ 	fmt.Printf("\nRendering %d intervals to: %s\n", len(intervals), config.OutputDir)
+ 
+-	// Determine CS2's movie output directory and clean it before launch so leftover
+-	// timestamp dirs from previous runs don't confuse the encoder.
++	// Refuse existing captures. The worker owns only frames created by this run.
+ 	homeDir, _ := os.UserHomeDir()
+ 	cs2Base := filepath.Join(homeDir, ".steam/steam/steamapps/common/Counter-Strike Global Offensive/game/csgo")
+ 	cs2MovieDir := filepath.Join(cs2Base, "dem-render/movie")
+ 	for _, movieDir := range []string{cs2MovieDir, filepath.Join(cs2Base, "movie")} {
+-		os.MkdirAll(movieDir, 0755)
+-		if entries, err := os.ReadDir(movieDir); err == nil {
+-			for _, e := range entries {
+-				os.RemoveAll(filepath.Join(movieDir, e.Name()))
+-			}
++		if err := os.MkdirAll(movieDir, 0755); err != nil {
++			return 0, 0, err
++		}
++		entries, err := os.ReadDir(movieDir)
++		if err != nil {
++			return 0, 0, err
++		}
++		if len(entries) != 0 {
++			return 0, 0, fmt.Errorf("movie directory is not empty: %s; archive previous captures first", movieDir)
+ 		}
+ 	}
+-	defer os.RemoveAll(cs2MovieDir)
+ 
+ 	// Parquet files are written to the output directory
+ 	parquetDir := config.OutputDir
+ 
+ 	// Start video encoder manager watching CS2's movie directory.
+ 	encoder := EncodeVideosWithOutput(cs2MovieDir, config.OutputDir, parquetDir, config.Framerate, config.Width, config.Height, config.PlayerRounds)
++	defer encoder.Stop()
+ 
+ 	// Create a single actions JSON for all intervals
+ 	jsonPath, err := createActionsJSONForIntervals(

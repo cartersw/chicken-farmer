@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/reka-ai/cs2-dem-renderer.git",
+  "commit": "02b09ffeaf7c3a0685a3e3e44ad6b2519f682c22",
+  "cs2_patch_version": "1.41.6.5",
+  "go_minimum": "1.25.4",
+  "adapter_version": "chicken-render-v1",
+  "timing_status": "unverified"
+}
