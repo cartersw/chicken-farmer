@@ -1,11 +1,55 @@
 # Evidence-bound sample acceptance
 
-The first accepted pilot uses the separate `accept-causal-samples` command:
-**129 accepted samples from protected capture 016**, with eight images and one
-bounded future command per sample. See [the synchronization guide](SYNCHRONIZATION.md)
-for its target semantics, required evidence, reproduction command and loader.
-The `accept-samples` workflow below retains its stricter historical fractional
-alignment contract and original results.
+## Current result and workflow
+
+**The current pilot has 129 accepted samples and 31 rejected candidates.**
+The zero counts later in this document describe older captures evaluated with
+the historical `accept-samples` workflow. They are preserved results for those
+specific runs; they are not the current pilot's acceptance count.
+
+| Capture / workflow | Candidates | Accepted | Rejected | Result manifest |
+| --- | ---: | ---: | ---: | --- |
+| **016: current `accept-causal-samples` pilot** | **160** | **129** | **31** | [Current causal acceptance](../data/accepted/dust2-causal-016-v1/causal_acceptance.json) |
+| 008-010: historical `accept-samples` campaign | 480 | 0 | 480 | [Historical campaign](../data/validation-campaigns/dust2-three-player-v1/campaign_manifest.json) |
+| 006: historical first `accept-samples` run | 160 | 0 | 160 | [Historical acceptance](../data/accepted/dust2-competitive-006-v1/acceptance_manifest.json) |
+
+The two workflows have different target definitions. The historical workflow
+requires proof of action timing inside its assigned frame intervals, including
+the relevant fractional timing and visual transitions. Those requirements
+remain unresolved for its recorded captures.
+
+The current `recorded_future_server_command_v1` profile instead predicts one
+recorded future command from eight images. Trial 016 supplies complete packet
+information bounds, pixel matching and first-person identity evidence. Both
+commands contributing to the aim difference must begin strictly after the
+image history's information bound. This establishes the narrower future target;
+it does not establish every subtick's original timing or promote the old runs.
+
+To repeat the current pilot's acceptance, run from the inner repository with a
+fresh output directory:
+
+```powershell
+$parsed = 'data/parsed/v2-state-fixed/f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773'
+.venv/Scripts/python.exe -m cs2_data accept-causal-samples `
+  --parsed $parsed `
+  --dataset data/datasets/dust2-timing-016 `
+  --network-clock data/clocks/dust2-three-clips-v1.json `
+  --state-context data/context/dust2-context-v2.json `
+  --out data/accepted/new-causal-review
+```
+
+Defaults are eight history frames and a two-frame target horizon, with no
+previous-action input features. The current manifest is `causal_acceptance.json`.
+See [the synchronization guide](SYNCHRONIZATION.md#accept-and-load-the-first-training-subset)
+for exact target semantics, outputs, retained source requirements and the loader
+that independently recomputes acceptance. The 129 samples are a five-second
+pilot; broader data collection and the tensor loader remain unfinished.
+
+## Historical `accept-samples` reference
+
+Everything below documents the historical workflow, its requirements and its
+original results. Its command, defaults and manifest differ from the current
+future-command workflow above.
 
 `accept-samples` writes a new partition of accepted and rejected temporal samples. It does not train a model or change the video, canonical commands, alignment, or their original readiness flags. A completed pipeline can legitimately produce zero accepted samples.
 
@@ -20,7 +64,7 @@ $parsed = 'data/parsed/v2-audited/f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75
 
 Both output directories must be new or empty. Acceptance obtains an exclusive output lock and publishes its completion manifest last. Existing outputs are never overwritten. If evidence or the validator implementation changes, generate a new validation report in another directory; acceptance recomputes validation and rejects stale or edited reports.
 
-## Temporal sample contract
+### Temporal sample contract
 
 The defaults are `--history-frames 8 --target-horizon-frames 1`, with previous action features included. An aligned interval belonging to image `i` contains the proposed future commands between observation `i` and observation `i+1`, using `(start,end]`. These diagnostic assignments still require separate proof of execution and observation phase before acceptance.
 
@@ -37,7 +81,7 @@ The preceding interval supplies the previous action feature for each image; its 
 
 Every image position receives a candidate record, including early or late positions without enough history or future intervals. `eligible_window_count` counts positions with all configured windows available. It is independent of acceptance: complete windows can still fail quality or evidence checks. With 160 frames and the default configuration, 152 windows are structurally complete.
 
-## Acceptance requirements
+### Acceptance requirements
 
 All requirements apply to the particular window:
 
@@ -52,7 +96,7 @@ POV/action failures are local when the report contains independent passed eviden
 
 The optional `cs2-context-v2` sidecar can fill a canonical null pause state only when it identifies the same source demo, is bound to the validation report, and explicitly covers the whole requested interval. The verifier requires the pinned parser/property prefix, the supported warning policy, and zero evidence-loss warnings. Pause is recomputed from all five observed game-rule flags. Missing flags, ambiguous ticks, gaps, or disagreement with known canonical state reject the sample. Legacy v1 context remains diagnostic-readable but cannot fill unknown canonical pause. This handles the supplied parser's historical wrong-prefix pause lookup without changing existing canonical Parquet files.
 
-## Outputs and reason codes
+### Outputs and reason codes
 
 `accepted_samples.jsonl` and `rejected_samples.jsonl` are disjoint and contain every candidate exactly once. Records include:
 
@@ -65,7 +109,7 @@ The optional `cs2-context-v2` sidecar can fill a canonical null pause state only
 
 Representative reasons include `missing_previous_action_context`, `missing_buttons_present`, `invalid_subtick_fraction`, `normalized_aim_invalid`, `is_paused_unknown`, `competitive_phase_unverified`, and `validation_observation_clock_unknown`. Multiple reasons can apply to one window, so reason counts do not sum to the candidate count. Artifact corruption or a stale validation report aborts publication instead of producing misleading accepted/rejected records.
 
-## Reproducible campaigns
+### Reproducible campaigns
 
 `cs2_data.campaign.summarize_campaign(acceptance: list[Path], out: Path)` summarizes a list of existing acceptance directories into a fresh `campaign_manifest.json`. It rehashes all partitions and source manifests, calls the current validation verifier, and reruns the acceptance policy in a private temporary directory. The regenerated acceptance manifest must equal the original, including partition hashes. This catches edited counts, self-consistent forged sample promotions, and reports made stale by new evidence or policy.
 
@@ -73,7 +117,7 @@ The campaign rejects repeated paths, copied identical artifacts, overlapping sam
 
 The summary reports actual candidate, complete-window, accepted, and rejected counts, source hashes, per-clip required-check statuses and scopes, and native transition observations. Aggregate check status counts count clips. A passed aggregate can still cover only some frames: exact scoped frame counts and local evidence remain visible. Transition observations are recorded separately from proof of action/observation phase. The campaign itself always has `training_ready=false` and cannot approve additional samples.
 
-The actual [three-player Dust2 campaign](../data/validation-campaigns/dust2-three-player-v1/campaign_manifest.json) revalidated these final artifacts:
+The historical [three-player Dust2 campaign](../data/validation-campaigns/dust2-three-player-v1/campaign_manifest.json) revalidated these artifacts from captures 008-010:
 
 | Acceptance | Round | Steam ID | Candidates | Complete windows | Accepted |
 | --- | --- | --- | ---: | ---: | ---: |
@@ -81,7 +125,7 @@ The actual [three-player Dust2 campaign](../data/validation-campaigns/dust2-thre
 | [009](../data/accepted/dust2-validation-009-state-fixed-v2/acceptance_manifest.json) | 4 | 76561198407480534 | 160 | 152 | 0 |
 | [010](../data/accepted/dust2-validation-010-state-fixed-v2/acceptance_manifest.json) | 5 | 76561198254835598 | 160 | 152 | 0 |
 
-All three captures pass integrity, native pixel correspondence, and strict first-person POV checks. Both clock checks and independent transition calibration remain unknown in all three. Across 480 candidates, 456 windows are complete and all 480 are rejected. Local input quality still rejects 108 windows with missing button messages and 45 with invalid subticks; a crouch mismatch affects 9 windows. These counts overlap with the timing rejections.
+All three historical captures pass integrity, native pixel correspondence, and strict first-person POV checks. Both clock checks and independent transition calibration remain unknown in these reports. Across their 480 candidates, 456 windows are complete and all 480 are rejected. Local input quality also rejects 108 windows with missing button messages and 45 with invalid subticks; a crouch mismatch affects 9 windows. These counts overlap with the timing rejections. The current 016 pilot is a separate capture and is not included in this table or campaign.
 
 To repeat the campaign with the same inputs:
 
@@ -104,12 +148,12 @@ summarize_campaign(
 
 FFmpeg must remain on `PATH` because current validation decodes the bound videos again. Use a new output directory; existing campaign reports remain immutable.
 
-## Historical supplied-demo baseline
+### Historical supplied-demo baseline
 
 The first actual acceptance run used [Dust2 capture 006's dataset](../data/datasets/dust2-competitive-006/pipeline_manifest.json), [validation 006-v2](../data/validation/dust2-competitive-006-v2/clip_validation.json), and [the observed game-rule context](../data/context/dust2-context-v1.json). Its immutable result is [acceptance 006-v1](../data/accepted/dust2-competitive-006-v1/acceptance_manifest.json): **160 candidates, 0 accepted, 160 rejected**.
 
 All windows lacked independently proven observation/execution timing, POV, and visual action evidence in that older capture. Additionally, 67 windows touch commands without a present buttons message, and 9 touch the recorded negative subtick. The first 7 lack a full image history, and the first 8 lack the complete previous-action context. Competitive phase and pause context passed the then-current checks. This historical report predates validator v2 and its context warning audit; regenerate validation and acceptance under current code before including an older capture in a new campaign.
 
-The known shot supports one scoped timing observation: weapon last-shot time equals `server_tick_executed - 1 + attack_subtick_when` for that press. An integer execution tick is a command boundary, so its placement alone does not prove every action inside that command occurs after the image. Acceptance keeps this limitation explicit. Further native POV/timing trials can supply stronger evidence without promoting older artifacts or removing rejection gates.
+The known shot supports one scoped timing observation: weapon last-shot time equals `server_tick_executed - 1 + attack_subtick_when` for that press. An integer execution tick is a command boundary, so its placement alone does not prove every action inside that command occurs after the image. The current pilot adds independently audited packet bounds and a future-command target; it retains this limitation on exact fractional timing and leaves the older results unchanged.
 
 Tests cover valid synthetic acceptance, temporal feature/target separation, local bad-frame contamination, unknown and incorrectly scoped evidence, inactive/unknown state, missing protobuf parents, command continuity, aim mismatches, invalid subticks, context gaps and unknown flags, tampered artifacts, immutable outputs, and failure before publication. The synthetic passed evidence exists only in test fixtures; production has no override to bypass validation.
