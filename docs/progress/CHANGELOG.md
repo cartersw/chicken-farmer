@@ -2,6 +2,41 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-07 - Packet synchronization and first accepted training subset
+
+Completed the approved clock-proof and first-subset work, with Steam Cloud
+testing deferred. Added `cs2-clocks`, independent protobuf/source-packet readers,
+native message and complete packet traces, and audits that recompute paired
+calls, seek filtering, source identity and image information bounds.
+
+Protected trial 016 produced 160 frames at 1280x720/32 FPS. All images and the
+final endpoint have verified packet bounds; all images pass pixel and native
+first-person identity checks. The audit accounts for 7,045 paired packet reads,
+2,690 exact payload matches and 189 independently reproduced seek-filter matches,
+with no unmatched packets. The run exited cleanly, preserved all 39 protected
+settings files, restored gameinfo and removed its staged plugin from CS2.
+
+Added the scoped `recorded_future_server_command_v1` acceptance profile. Its
+eight-image histories predict one future command; both adjacent commands used
+for the aim difference begin strictly after the observation information bound.
+Raw button planes and command protobufs are retained. Previous actions and
+subtick trajectories are excluded from model inputs. Acceptance checks raw
+clocks, pawn/action fields, repeated records and optional presence, and rejects
+unsupported flags or fractions. Source changes during verification abort output.
+
+The fresh public output `data/accepted/dust2-causal-016-v1/` contains **129 accepted
+and 31 rejected samples**. Its loader independently rescanned and reproduced
+the same evidence and exact records. Earlier strict campaign reports remain
+unchanged at zero accepted samples. This pilot is not a large training corpus;
+the tensor loader and model training remain future work. Sampled HUD review
+still shows the replay observer name/weapon strip.
+
+Verification: **619 Python tests passed**; extractor/renderer Go suites passed,
+including five new clock-extractor tests; the native plugin built and passed
+live trial 016. The final plugin hash and acceptance contract hash are recorded
+in [STATUS.md](STATUS.md). The implementation and reproduction commands are in
+[SYNCHRONIZATION.md](../SYNCHRONIZATION.md).
+
 ## 2026-09-07 — Steam Offline Mode context clarified
 
 After confirming normal preferences, the user reported that Steam is in Offline

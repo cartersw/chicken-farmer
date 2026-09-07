@@ -92,5 +92,59 @@ bin/cs2-clocks.exe --input <source.dem> --windows 5980:6350 --out data/clocks/ne
 
 Use fresh output paths. The clock audit alone always remains
 `training_ready=false`; it reports received-message associations, not acceptance.
+
+## Accept and load the first training subset
+
+The completed trial-016 output is `data/accepted/dust2-causal-016-v1/`:
+**129 accepted samples and 31 rejected candidates**. Every accepted sample has
+eight raw-image references, one future command target and the two canonical
+command records used for its aim difference. This is a five-second Dust2 pilot.
+The independent loader recomputed the same result from the original sources.
+
+To generate another review of the same capture, use a fresh output directory:
+
+```powershell
+$parsed = 'data/parsed/v2-state-fixed/f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773'
+.venv/Scripts/python.exe -m cs2_data accept-causal-samples `
+  --parsed $parsed `
+  --dataset data/datasets/dust2-timing-016 `
+  --network-clock data/clocks/dust2-three-clips-v1.json `
+  --state-context data/context/dust2-context-v2.json `
+  --out data/accepted/new-causal-review
+```
+
+Defaults are `--history-frames 8 --target-horizon-frames 2`. The output contains
+`accepted_samples.jsonl`, `rejected_samples.jsonl`, `packet_source_evidence.json`
+and the completion manifest `causal_acceptance.json`. The manifest is published
+last; existing output is never overwritten. Images remain at their hashed raw
+capture paths instead of being duplicated for overlapping histories.
+
+```python
+from pathlib import Path
+from cs2_data.causal_acceptance import load_causal_acceptance
+
+report = load_causal_acceptance(Path("data/accepted/dust2-causal-016-v1"))
+print(report["accepted_count"])  # 129 on the preserved trial-016 sources
+```
+
+Loading rescans the source demo and recomputes packet bounds, identity, pixels,
+state and labels. Edited acceptance flags or rehashed sample files cannot
+replace that proof. Required source artifacts and the inspected server binary
+must remain available; this is an evidence loader, not yet a tensor loader.
+Changed or missing sources fail verification.
+
+The acceptance boundary also checks projected command clocks, pawn identity,
+actions, optional-field presence, and every projected subtick/history record
+against the retained protobuf. Command numbers come from source envelopes;
+the usually absent legacy base-command number is not treated as zero. Raw
+fractions cannot be hidden by clearing an extracted list. Unsupported command
+flags and invalid fractions reject the affected sample without repair.
+
+The existing `process-render` viewer shows diagnostic interval assignments.
+Read the accepted JSONL for the actual future targets; that viewer has not yet
+been adapted to this profile. Sampled HUD review is retained at
+`data/rendered/windows-timing-016/visual-review.json`; the observer name/weapon
+strip remains visible, and original-client HUD equivalence is not established.
+
 The [progress tracker](progress/STATUS.md) records real captures, final sample
 counts and remaining work. Steam Cloud testing is deferred at the user's request.

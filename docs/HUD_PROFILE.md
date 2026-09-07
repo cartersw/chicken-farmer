@@ -135,4 +135,14 @@ The run used DLL SHA256 `4b52bd78efe574d837d155ff91921ca57d0b284bfd497457b3b0129
 
 Earlier `spectator-mask-v1` and `round-announcement-mask-v1` outputs remain historical diagnostics. The latter covered `(534,494,212,38)` in the 1280x720 layout, including scene pixels where a notice was absent. Those transformations should not be confused with the current native profile or silently mixed into an unmasked dataset.
 
-The visual checks cover the installed 1280x720 layout with `hud_scaling=1`. Recheck after game, resolution or HUD configuration changes. Native spectator rendering still differs from an original client recording, and HUD cleanup alone does not prove timing or training readiness. Preserve raw captures and the exact profile/commands per run. Some console settings can persist in the user's CS2 configuration; byte-exact `gameinfo.gi` restoration does not restore all user settings.
+The visual checks cover the installed 1280x720 layout with `hud_scaling=1`. Recheck after game, resolution or HUD configuration changes. Native spectator rendering still differs from an original client recording, and HUD cleanup alone does not prove timing or training readiness. Preserve raw captures and the exact profile/commands per run.
+
+The earlier captures above restored only `gameinfo.gi` and could persist console
+settings. The current [protected worker](WINDOWS_RENDERING.md#keeping-normal-play-separate)
+clones preferences, enforces the native path/Cloud guard, verifies selected
+personal-file restoration and removes its staged plugin after exit. Protected
+clock trial 016 preserved all 39 selected files. Its sampled frames show the
+cleaned native HUD, with the observer name/weapon strip still visible; see
+`data/rendered/windows-timing-016/visual-review.json`. Online Cloud testing is
+deferred. The accepted future-command profile does not claim original-client
+HUD equivalence.

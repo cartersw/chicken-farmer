@@ -64,8 +64,41 @@ def _one(fields, number, wire):
     return values[0][1]
 
 
+def _float(fields, number):
+    value = _one(fields, number, 5)
+    return struct.unpack("<f", value)[0] if value is not None else None
+
+
+def _messages(fields, number):
+    for wire, payload in fields.get(number, []):
+        if wire != 2:
+            raise ValueError("Invalid repeated canonical protobuf message")
+        yield protobuf_fields(payload)
+
+
+def _subtick_projection(fields):
+    pressed = _one(fields, 2, 0)
+    if pressed is not None and pressed not in (0, 1):
+        raise ValueError("Invalid canonical protobuf boolean")
+    return {"button": _one(fields, 1, 0), "pressed": None if pressed is None else bool(pressed),
+            **{name: _float(fields, number) for name, number in
+               (("when", 3), ("analog_forward_delta", 4), ("analog_left_delta", 5),
+                ("pitch_delta", 8), ("yaw_delta", 9))}}
+
+
+def _history_projection(fields):
+    raw_angles = _one(fields, 2, 2)
+    angles = protobuf_fields(raw_angles) if raw_angles is not None else {}
+    return {"render_tick_count": scalar(fields, 4, signed=True),
+            "render_tick_fraction": _float(fields, 5),
+            "player_tick_count": scalar(fields, 6, signed=True),
+            "player_tick_fraction": _float(fields, 7),
+            "view_pitch": _float(angles, 1), "view_yaw": _float(angles, 2),
+            "frame_number": scalar(fields, 64, signed=True)}
+
+
 def _action_protobuf(row: dict[str, Any]) -> tuple[set[str], int | None]:
-    """Recheck action/presence columns and flags against the canonical raw PB."""
+    """Recheck clocks, action columns, repeated records and presence against raw PB."""
     reasons: set[str] = set()
     try:
         outer = protobuf_fields(row.get("command_protobuf"))
@@ -75,30 +108,45 @@ def _action_protobuf(row: dict[str, Any]) -> tuple[set[str], int | None]:
         if raw_base is None:
             return reasons | {"missing_base_present"}, None
         fields = protobuf_fields(raw_base)
+        # CommandNumber comes from the original envelope, not the optional,
+        # usually absent legacy base field. Source-envelope matching checks it
+        # independently. An explicitly conflicting legacy value is unsupported.
+        legacy_number = scalar(fields, 1, signed=True)
+        if legacy_number is not None and not _same(row.get("command_number"), legacy_number):
+            reasons.add("canonical_command_number_disagrees_with_protobuf")
+        for name, expected in (("client_tick", scalar(fields, 2, signed=True)),
+                               ("pawn_entity_handle", scalar(fields, 14))):
+            if not _same(row.get(name), expected):
+                reasons.add("canonical_"+name+"_disagrees_with_protobuf")
         raw_buttons, raw_angles = _one(fields, 3, 2), _one(fields, 4, 2)
         for name, value in (("buttons_present", raw_buttons), ("viewangles_present", raw_angles)):
             if row.get(name) is not (value is not None):
                 reasons.add("canonical_"+name+"_disagrees_with_protobuf")
         decoded = {}
         for name, number in (("forwardmove", 5), ("leftmove", 6), ("upmove", 7)):
-            value = _one(fields, number, 5)
-            decoded[name] = struct.unpack("<f", value)[0] if value is not None else None
+            decoded[name] = _float(fields, number)
         for name, number in (("impulse", 8), ("weaponselect", 9), ("mousedx_raw", 11), ("mousedy_raw", 12)):
             decoded[name] = scalar(fields, number, signed=True)
-        if raw_buttons is not None:
-            buttons = protobuf_fields(raw_buttons)
-            for number in (1, 2, 3):
-                decoded["buttonstate"+str(number)] = _one(buttons, number, 0)
-        if raw_angles is not None:
-            angles = protobuf_fields(raw_angles)
-            for number, name in enumerate(("view_pitch", "view_yaw", "view_roll"), 1):
-                value = _one(angles, number, 5)
-                decoded[name] = struct.unpack("<f", value)[0] if value is not None else None
+        buttons = protobuf_fields(raw_buttons) if raw_buttons is not None else {}
+        for number in (1, 2, 3):
+            decoded["buttonstate"+str(number)] = _one(buttons, number, 0)
+        angles = protobuf_fields(raw_angles) if raw_angles is not None else {}
+        for number, name in enumerate(("view_pitch", "view_yaw", "view_roll"), 1):
+            decoded[name] = _float(angles, number)
+        for name, number in (("attack1_start_history_index", 6), ("attack2_start_history_index", 7)):
+            decoded[name] = scalar(outer, number, signed=True)
         for name, expected in decoded.items():
             actual = row.get(name)
             # Parquet retains the original float32 value as a Python float.
             if not _same(actual, expected):
                 reasons.add("canonical_action_disagrees_with_protobuf")
+        for name, expected in (
+                ("subtick_moves", [_subtick_projection(item) for item in _messages(fields, 18)]),
+                ("input_history", [_history_projection(item) for item in _messages(outer, 2)])):
+            # Compare length, order, scalar types and nullable presence. A
+            # cleared list must never hide an out-of-range raw fraction.
+            if not _same(row.get(name), expected):
+                reasons.add("canonical_"+name+"_disagrees_with_protobuf")
         flags = scalar(fields, 21, signed=True)
         flags = 0 if flags is None else flags  # Known present base, defined PB default.
         if flags != 0:

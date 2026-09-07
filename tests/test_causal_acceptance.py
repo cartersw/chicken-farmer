@@ -40,7 +40,7 @@ def floating(number, value):
 def command(end=117, flags=0, *, omitted=False):
     angles = b"" if omitted else floating(1, 1.0)+floating(2, float(end))+floating(3, 0.0)
     buttons = b"" if omitted else integer(1, 1)+integer(2, 0)+integer(3, 2)
-    raw = embedded(3, buttons)+embedded(4, angles)
+    raw = integer(1, end)+integer(2, end-3)+integer(14, 42)+embedded(3, buttons)+embedded(4, angles)
     if not omitted:
         raw += floating(5, 1.0)+floating(6, 0.0)+floating(7, 0.0)
         raw += integer(8, 0)+integer(9, 0)+integer(11, 3)+integer(12, -1)
@@ -76,6 +76,66 @@ def test_known_present_empty_submessages_supply_defined_scalar_defaults():
     assert derived["mousedx_effective"] == 0
     row["buttons_present"] = False
     assert "canonical_buttons_present_disagrees_with_protobuf" in causal._action_protobuf(row)[0]
+
+
+@pytest.mark.parametrize("name", ["command_number", "client_tick", "pawn_entity_handle"])
+def test_raw_clock_and_pawn_columns_cannot_disagree(name):
+    row = command()
+    row[name] += 1
+    assert "canonical_"+name+"_disagrees_with_protobuf" in causal._action_protobuf(row)[0]
+
+
+def test_absent_legacy_command_number_is_not_a_zero_envelope_number():
+    row = command()
+    base = causal.protobuf_fields(row["command_protobuf"])[1][0][1]
+    assert base.startswith(integer(1, 117))
+    row["command_protobuf"] = embedded(1, base[len(integer(1, 117)):])
+    assert causal._action_protobuf(row) == (set(), 0)
+
+
+def add_record(row, collection, payload):
+    if collection == "subtick_moves":
+        base = causal.protobuf_fields(row["command_protobuf"])[1][0][1]
+        row["command_protobuf"] = embedded(1, base+embedded(18, payload))
+    else:
+        row["command_protobuf"] += embedded(2, payload)
+
+
+@pytest.mark.parametrize("collection,payload,projection", [
+    ("subtick_moves", integer(1, 2**40)+integer(2, 0)+floating(3, 0.25)+floating(9, 2.0),
+     {"button": 2**40, "pressed": False, "when": 0.25, "analog_forward_delta": None,
+      "analog_left_delta": None, "pitch_delta": None, "yaw_delta": 2.0}),
+    ("input_history", integer(4, 100)+floating(5, 0.5)+integer(6, 101)+floating(7, 0.75)
+     +embedded(2, floating(1, 1.0)+floating(2, 2.0))+integer(64, 3),
+     {"render_tick_count": 100, "render_tick_fraction": 0.5, "player_tick_count": 101,
+      "player_tick_fraction": 0.75, "view_pitch": 1.0, "view_yaw": 2.0, "frame_number": 3}),
+])
+def test_repeated_projection_checks_presence_order_and_scalar_types(collection, payload, projection):
+    row = command()
+    add_record(row, collection, payload)
+    row[collection] = [projection.copy()]
+    assert causal._action_protobuf(row) == (set(), 0)
+    reason = "canonical_"+collection+"_disagrees_with_protobuf"
+    row[collection] *= 2
+    assert reason in causal._action_protobuf(row)[0]
+    row[collection] = [projection.copy()]
+    scalar_name = "pressed" if collection == "subtick_moves" else "frame_number"
+    row[collection][0][scalar_name] = 0 if collection == "subtick_moves" else 3.0
+    assert reason in causal._action_protobuf(row)[0]
+    row[collection] = []
+    assert reason in causal._action_protobuf(row)[0]
+
+
+@pytest.mark.parametrize("collection,payload", [
+    ("subtick_moves", integer(2, 2)),
+    ("subtick_moves", integer(3, 0)),
+    ("input_history", embedded(2, integer(1, 0))),
+    ("input_history", integer(4, 2**32)),
+])
+def test_invalid_nested_raw_types_reject(collection, payload):
+    row = command()
+    add_record(row, collection, payload)
+    assert "canonical_action_protobuf_invalid" in causal._action_protobuf(row)[0]
 
 
 @pytest.mark.parametrize("payload", [b"", b"\x80", embedded(1, b"\xa8\x01\x80"), embedded(1, embedded(4, b"\x0d\x01"))])
@@ -258,6 +318,29 @@ def test_modified_canonical_projection_cannot_be_hidden_by_rehashing_parquet_man
     report = causal.accept_causal_samples(*fixture["arguments"])
     assert report["accepted_count"] == 1
     assert report["reason_counts"]["canonical_action_disagrees_with_protobuf"] >= 1
+
+
+@pytest.mark.parametrize("collection,number", [("subtick_moves", 3), ("input_history", 5), ("input_history", 7)])
+@pytest.mark.parametrize("fraction", [-0.25, 1.25, float("nan"), float("inf")])
+def test_rehashed_empty_projection_cannot_hide_unsupported_raw_fractions(fixture, collection, number, fraction):
+    rewrite_commands(fixture, lambda rows: add_record(rows[17], collection, floating(number, fraction)))
+    report = causal.accept_causal_samples(*fixture["arguments"])
+    assert report["accepted_count"] == 1
+    assert report["reason_counts"]["canonical_"+collection+"_disagrees_with_protobuf"] >= 1
+
+
+def test_sources_changed_during_recomputation_abort_publication(fixture, monkeypatch):
+    scan = causal.scan_demo_packets
+
+    def mutate_source(*args, **kwargs):
+        result = scan(*args, **kwargs)
+        fixture["network_clock"].write_text('{"edited": true}')
+        return result
+
+    monkeypatch.setattr(causal, "scan_demo_packets", mutate_source)
+    with pytest.raises(ValueError, match="changed during verification"):
+        causal.accept_causal_samples(*fixture["arguments"])
+    assert not (fixture["out"] / "causal_acceptance.json").exists()
 
 
 @pytest.mark.parametrize("defect", ["target", "predecessor", "feature", "ready", "source_proof"])

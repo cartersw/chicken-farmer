@@ -50,11 +50,11 @@ future-command profile, and none of its original artifacts were relabeled.
 | Component | Current behavior and evidence |
 | --- | --- |
 | Canonical extraction | All three demos retain 4,933,316 reconstructed commands, full protobufs, identity/presence fields, state, rounds and events. Missing baselines and invalid fractions remain visible. |
-| Windows rendering | The previous capture build renders 1280x720 at 32 FPS, retaining raw TGA, MP4, PTS, native readback hashes and the final capture endpoint. Those launches restored `gameinfo.gi`, not all personal preferences. |
-| Settings protection | Trial 012, with Steam offline as subsequently reported by the user, verifies the native interface/path guard, unchanged bytes/mtime/read-only flags for 39 selected files, released locks and plugin cleanup. Online Cloud/reconnection behavior is unverified. |
+| Windows rendering | Protected trial 016 renders 1280x720 at 32 FPS, retaining 160 raw TGA, MP4, PTS, native readback hashes, packet evidence and the final endpoint. |
+| Settings protection | Trial 012 verified local isolation and cleanup; clock captures 014-016 also preserved all 39 selected files and removed staged plugins. Steam Offline Mode was reported by the user; online Cloud/reconnection behavior is unverified and deferred. |
 | Competitive filtering / HUD | Phase sidecars identify 24 competitive and 2 setup rounds in each demo. Native HUD controls and settling remove earlier stale announcements without image masks. |
-| Exact POV | Native observer handles resolve SteamID and reciprocal pawn/controller identity. Validation checks in-eye mode, view overrides and camera stability across pixel readback. All 480 latest frames pass. |
-| Frame/action alignment | Each latest clip contains 160 frames and 320 commands with no empty intervals, normalized aim and an interactive inspector. Future interval assignments remain diagnostic. |
+| Exact POV | Native observer handles resolve SteamID and reciprocal pawn/controller identity. Validation checks in-eye mode, view overrides and camera stability across pixel readback. All 480 historical campaign frames and all 160 trial-016 frames pass. |
+| Frame/action alignment | The historical clips each contain 160 frames and 320 diagnostically aligned commands, normalized aim and an inspector. Trial 016 adds a separate accepted future-command partition. |
 | Broader action checks | Captures cover firing, dynamic aim, movement, jump/landing and crouch transitions across Ckanic, Nikodeon and ay0k. |
 | Sample acceptance | Configurable image history, previous actions and future intervals; exact raw IDs; phase, pause, death, continuity, normalized-label and subtick checks. Local failed evidence rejects affected windows. |
 | Future-command acceptance | 129 actual samples from trial 016, using complete packet bounds, scoped server-command support, eight images, and a wholly future normalization pair. Previous-action features and subtick trajectories are excluded. |
@@ -163,12 +163,19 @@ completed successfully; its nonzero quality-check exit does not mean parsing fai
 
 ## Verification
 
-Verification: **226 Python tests pass**, including 28 settings-transaction and
-35 worker-isolation/recovery cases. The preceding capture checkpoint also passed
-all extractor/renderer Go suites; those components are unchanged by this task.
-The new native Release plugin builds successfully and passed live trial 012.
-Its hash, trial-011 crash diagnosis and exact binary requirements are recorded in
-[SETTINGS_ISOLATION.md](../../tools/renderer/plugin-windows/SETTINGS_ISOLATION.md).
+Verification: **619 Python tests pass**, including source-packet decoding,
+native counter/clock audits, future-target selection, acceptance recomputation,
+raw-protobuf projection checks and the existing settings/worker recovery cases.
+All extractor/renderer Go suites passed, including the five new `cs2-clocks`
+tests. The native Release plugin built and passed the protected live trial 016.
+Its DLL SHA256 is
+`ad60f7eb5165aa2ee1a207cae1aea69e5176144f18435275f2eaec3e4aa9de8c`.
+The public acceptance run and independent loader both reproduced 129 accepted
+and 31 rejected candidates. Contract SHA256:
+`7150acbeaf33d882f43d6d5a49902103b2418c8539558c193e6894e548c336fa`.
+See [CLOCK_HOOK.md](../../tools/renderer/plugin-windows/CLOCK_HOOK.md) and
+[SETTINGS_ISOLATION.md](../../tools/renderer/plugin-windows/SETTINGS_ISOLATION.md)
+for exact binary requirements and settings evidence.
 
 ## Future work
 

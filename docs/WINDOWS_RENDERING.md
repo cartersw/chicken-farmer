@@ -2,10 +2,15 @@
 
 Use the native Steam/CS2 installation with the experimental worker in
 `tools/renderer/windows.py`. Linux and WSL are not needed for this route.
-The first target is a short, inspectable Dust2 player POV clip; producing video
-does not establish that frames are aligned with command execution.
+The current pilot is a short Dust2 player POV clip with separately verified
+frame and future-command timing.
 
 **Local result:** native capture succeeds on CS2 1.41.7.8 at 1280x720/32 fps.
+Protected clock trial `windows-timing-016` produced 160 images, verified packet
+information bounds and **129 accepted training samples**, with 31 rejected.
+All 39 selected personal settings files were preserved and the staged plugin
+was removed from CS2. See [the synchronization workflow](SYNCHRONIZATION.md)
+for the accepted profile and its limits. Steam Cloud testing is deferred.
 The settings-isolation build passed the live `windows-settings-012` trial:
 64 frames, a two-second MP4, clean CS2 exit, and all 39 selected personal settings
 files unchanged. Earlier captures used the previous build, which restored
@@ -17,10 +22,12 @@ The competitive pilot now uses Ckanic's first scored Dust2 round, including a
 Glock shot and aim turn. The planner excludes the earlier knife/setup phase.
 Native HUD controls remove spectator statistics and chat while preserving player
 signals. Capture instrumentation records actual movie counters, pixel hashes and
-render clocks. The latest output is
-`data/rendered/windows-competitive-006/dd3ea5022ae36523398b97ca.mp4`;
-`data/datasets/dust2-competitive-006/` contains 160 frame intervals, 320 commands,
-normalized aim targets and `viewer/inspect.html`. See
+render clocks. The latest video is
+`data/rendered/windows-timing-016/dd3ea5022ae36523398b97ca.mp4`;
+`data/datasets/dust2-timing-016/` contains diagnostic alignment and
+`viewer/inspect.html`. Accepted targets are a separate partition under
+`data/accepted/dust2-causal-016-v1/`; the diagnostic viewer does not display that
+new target selection. See
 [current evidence and limits](progress/STATUS.md).
 
 ## Local prerequisites
@@ -288,9 +295,14 @@ inconsistent clocks fail; earlier uninstrumented pilots cannot be upgraded by
 guessing timestamps. Individual stage commands are documented in
 [ALIGNMENT.md](ALIGNMENT.md).
 
-Outputs remain `training_ready=false`. Measured image identity does not alone
+These diagnostic outputs remain `training_ready=false`. Measured image identity does not alone
 prove the command/render clock epoch, fractional action timing or every player's
 POV. The real inspector makes those assumptions visible for review.
+
+Use [the separate causal acceptance command](SYNCHRONIZATION.md#accept-and-load-the-first-training-subset)
+after capture processing to publish samples supported by complete packet bounds
+and the scoped server-command profile. Only its accepted sample records are
+approved for that feature/target contract.
 
 The latest actual build/run outcome is recorded in
 [the progress tracker](progress/STATUS.md). A dry run or successful plugin build

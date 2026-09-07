@@ -1,5 +1,12 @@
 # Evidence-bound sample acceptance
 
+The first accepted pilot uses the separate `accept-causal-samples` command:
+**129 accepted samples from protected capture 016**, with eight images and one
+bounded future command per sample. See [the synchronization guide](SYNCHRONIZATION.md)
+for its target semantics, required evidence, reproduction command and loader.
+The `accept-samples` workflow below retains its stricter historical fractional
+alignment contract and original results.
+
 `accept-samples` writes a new partition of accepted and rejected temporal samples. It does not train a model or change the video, canonical commands, alignment, or their original readiness flags. A completed pipeline can legitimately produce zero accepted samples.
 
 Run from the repository root, with the bundled FFmpeg directory on `PATH` so validation can decode and check the video:
