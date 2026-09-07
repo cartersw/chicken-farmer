@@ -53,9 +53,9 @@ gaps by assuming 32 FPS. Fractional ticks are supported.
 ## Run the stages
 
 ```powershell
-cs2-data normalize --parsed data/parsed/v2/DEMO_ID --out data/normalized/v2/DEMO_ID
-cs2-data render-jobs --parsed data/parsed/v2/DEMO_ID --out data/jobs/one.jsonl --limit 1
-cs2-data align --parsed data/parsed/v2/DEMO_ID --clip data/rendered/clip.json --timing data/rendered/frames.jsonl --normalized data/normalized/v2/DEMO_ID --out data/aligned/v1/CLIP_ID
+cs2-data normalize --parsed data/parsed/v2-audited/DEMO_ID --out data/normalized/new-run/DEMO_ID
+cs2-data render-jobs --parsed data/parsed/v2-audited/DEMO_ID --out data/jobs/one.jsonl --limit 1
+cs2-data align --parsed data/parsed/v2-audited/DEMO_ID --clip data/rendered/clip.json --timing data/rendered/frames.jsonl --normalized data/normalized/v2/DEMO_ID --out data/aligned/v1/CLIP_ID
 cs2-data viewer --aligned data/aligned/v1/CLIP_ID --out data/aligned/v1/CLIP_ID/viewer.html
 ```
 

@@ -1,5 +1,7 @@
 # CS2 replay training data
 
+Track completed work, current blockers, and the next milestones in [docs/progress](docs/progress/README.md).
+
 This repository starts the pipeline described in [the project handoff](CS2_Vision_Imitation_Learning_Project_Handoff.md): professional `.dem` recordings → reconstructed player commands and state → player POV replay video → auditable frame/action alignment.
 
 The Windows extractor and Python data tools work locally. **All three supplied demos have been processed, yielding 4,933,316 reconstructed commands. They are diagnostic outputs, not yet a training-ready dataset:** validation found missing initial command baselines and negative subtick timestamps. [The initial run report](docs/INITIAL_RUN.md) records the results and remaining work.
