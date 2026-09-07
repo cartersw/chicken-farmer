@@ -154,3 +154,8 @@ Its mismatching value is useful negative evidence against conflating those clock
 
 Training readiness remains false; frame/input alignment must use a separately
 justified clock mapping and verify POV/action interpretation.
+
+The subsequent [network clock experiment](CLOCK_HOOK.md) observes delivered
+NET_Tick, PacketEntities, and UserCommands envelopes at native handlers, with
+their clocks sampled at submission/readback. It preserves these render clocks
+and does not automatically certify synchronization or change acceptance flags.

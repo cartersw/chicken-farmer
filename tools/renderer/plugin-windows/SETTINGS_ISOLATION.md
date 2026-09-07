@@ -12,7 +12,8 @@ did not independently record that mode. Online Steam Cloud synchronization and
 reconnection remain unverified. The observed native interface block is separate
 evidence and is not inferred from Steam being offline.
 
-The tested Release build at `../build/plugin-windows/Release/server.dll` has SHA-256
+The build tested in trial 012, preserved at
+`../build/plugin-windows/settings-012-0f9c1f0c/server.dll`, has SHA-256
 `0f9c1f0c4c4a6275960d48d2df8a9b1b5684040a490f9cd9ad484989d1c3823c`.
 MSVC compilation and linking passed. The policy marker remains present and the
 faulting optional console-command object/destructor is absent from DLL/MAP.

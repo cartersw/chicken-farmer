@@ -15,10 +15,11 @@
 - [x] Implement temporal sample acceptance with exact references and rejection reasons.
 - [x] Fix pause/ammo extraction and re-extract Dust2 without changing raw commands.
 
-The two approved features are implemented. Their real result is **zero accepted
-samples**, with the remaining timing uncertainty recorded explicitly.
+The approved clock-proof and first-subset work is implemented. The new bounded
+future-command profile produces **129 accepted samples** from trial 016. The
+older strict fractional-alignment campaign retains its original zero count.
 
-## Settings protection: offline trial passed; online check remains
+## Settings protection: online check deferred by the user
 
 - [x] Snapshot selected personal settings and create a private render profile.
 - [x] Implement recovery for handled failures and a separate interrupted-run command.
@@ -29,7 +30,7 @@ samples**, with the remaining timing uncertainty recorded explicitly.
 - [x] Fix the shutdown crash caused by an optional plugin command destructor (011 diagnosis, 012 verification).
 - [x] Archive all 17 verified historical plugin folders out of CS2; retain their evidence.
 - [x] User confirms audio, video and HUD look correct after launching normally through Steam.
-- [ ] Separately verify a protected capture with Steam online and check personal settings after synchronization/reconnection; the completed trial used the user's reported Offline Mode.
+- [ ] Deferred: verify Steam online/reconnection behavior when requested. This is not a prerequisite for the current offline data work.
 
 If the startup guard finds the Cloud interface already used, stop and implement
 an earlier loader; do not disable the check. The exact installed binaries passed
@@ -38,30 +39,32 @@ establish online Steam client synchronization behavior. Future game updates
 require compatibility verification. See
 [the rendering guide](../WINDOWS_RENDERING.md#keeping-normal-play-separate).
 
-## 1. Establish the remaining timing contract
+## 1. Completed: bounded future-command timing
 
-- [ ] Establish the relation between execution ticks, fractional subactions, native simulation time and rendered observations.
-- [ ] Resolve commands whose subactions straddle an observation. Define strictly future continuous and discrete targets.
-- [ ] Distinguish camera recoil/interpolation from base aim and discrete pawn transitions.
-- [ ] Add independent evidence that the validator can recompute; preserve unknown native fields.
+- [x] Match complete native packet bytes to the original demo, including seeking and filtering.
+- [x] Establish scoped enclosing server-command support and strictly future target selection.
+- [x] Include both adjacent command supports when deriving normalized aim differences.
+- [x] Recompute independent source evidence, paired handlers, image bounds, pixels and POV; reject edited or shifted derived labels.
+- [ ] Later extension: reconstruct field-specific subtick trajectories and exact visual effect timing. These are not claimed by the first profile.
 
-Completion: healthy real windows pass both clock gates with evidence, while
-deliberately shifted labels fail. One matching shot or edited flags cannot prove this.
+Evidence: all 160 trial-016 image bounds and the endpoint verify. See
+[SYNCHRONIZATION.md](../SYNCHRONIZATION.md). Earlier strict reports remain unchanged.
 
-## 2. Produce the first accepted subset
+## 2. First accepted subset delivered; expand coverage next
 
-- [ ] Re-run validation/acceptance after timing is proven and inspect accepted windows.
+- [x] Produce accepted/rejected manifests with exact image/command references: 129 accepted, 31 rejected.
+- [x] Recompute acceptance during loading and retain raw command/subtick provenance.
 - [ ] Extend firing to more players/weapons; include movement starts/stops and rapid transitions.
 - [ ] Regenerate Nuke/Cache state with extractor 0.1.2 when extending the corpus.
 - [ ] Broaden map/build coverage before certifying a reusable rendering profile.
-- [ ] Keep missing-baseline, absent-message and invalid-fraction rejection; recover data only with proven semantics.
+- [x] Keep missing-baseline, absent-message and unsupported-fraction rejection; recover additional data only with proven semantics.
 
 Completion: a small real corpus has accepted windows, complete provenance and
 meaningful negative cases. The global validator may still reject incomplete demos.
 
-## 3. Build the training data interface
+## 3. Next: build the training data interface
 
-- [ ] Implement an image/previous-action loader using accepted manifests.
+- [ ] Implement a tensor loader using accepted image histories and future-command targets. The first profile has no previous-action input features.
 - [ ] Define variable command/subtick targets, tensor padding and label masks.
 - [ ] Split deterministically by match/series; keep the current three maps together.
 - [ ] Verify a complete training batch and sampling statistics.

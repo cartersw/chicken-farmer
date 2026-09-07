@@ -17,6 +17,8 @@ from .pipeline import process_render
 from .timing import prepare_timing
 from .viewer import viewer
 from .validation import validate_clip
+from .synchronization import audit_synchronization
+from .causal_acceptance import accept_causal_samples
 
 
 def parser() -> argparse.ArgumentParser:
@@ -74,6 +76,19 @@ def parser() -> argparse.ArgumentParser:
     validation.add_argument("--dataset", type=Path, required=True)
     validation.add_argument("--out", type=Path, required=True)
     validation.add_argument("--state-context", type=Path, help="Independent observed game-rule and weapon-clock sidecar from cs2-context")
+    sync = commands.add_parser("audit-synchronization", help="Recompute retained protobuf/native clock associations without certifying input support")
+    sync.add_argument("--parsed", type=Path, required=True)
+    sync.add_argument("--dataset", type=Path, required=True)
+    sync.add_argument("--network-clock", type=Path, required=True)
+    sync.add_argument("--out", type=Path, required=True)
+    causal = commands.add_parser("accept-causal-samples", help="Accept future server-command samples using freshly verified packet bounds")
+    causal.add_argument("--parsed", type=Path, required=True)
+    causal.add_argument("--dataset", type=Path, required=True)
+    causal.add_argument("--network-clock", type=Path, required=True)
+    causal.add_argument("--state-context", type=Path, required=True)
+    causal.add_argument("--out", type=Path, required=True)
+    causal.add_argument("--history-frames", type=int, default=8)
+    causal.add_argument("--target-horizon-frames", type=int, default=2)
     acceptance = commands.add_parser("accept-samples", help="Write accepted/rejected temporal sample manifests with explicit reasons")
     acceptance.add_argument("--parsed", type=Path, required=True)
     acceptance.add_argument("--dataset", type=Path, required=True)
@@ -111,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
         report = {"normalize": normalize, "render-jobs": render_jobs, "calibrate": calibrate,
                   "prepare-timing": prepare_timing, "process-render": process_render,
                   "validate-clip": validate_clip, "accept-samples": accept_samples,
+                  "audit-synchronization": audit_synchronization,
+                  "accept-causal-samples": accept_causal_samples,
                   "summarize-campaign": summarize_campaign,
                   "align": align, "viewer": viewer}[command](**args)
     except (ValueError, OSError, KeyError, TypeError) as error:

@@ -82,6 +82,8 @@ json DemoStartTick() {
 }
 
 #include "observation_trace.inc"
+#include "packet_trace.inc"
+#include "clock_trace.inc"
 
 string MovieName(void* self) {
     auto name = Read<const char*>(self, 0x130);
@@ -124,6 +126,7 @@ void NewMovieFrame(void* self, const void* event) {
                {"render_time_seconds", Read<float>(event, 0x28)},
                {"real_time_seconds", Read<float>(event, 0x2c)},
                {"native_observation", Observation::Snapshot("movie_endpoint")},
+               {"native_clock", ClockTrace::Snapshot("movie_endpoint")},
                {"native_state_before", state},
                {"clock_phase", "first_movie_callback_after_recording_stopped"}});
         movieWasRecording = false;
@@ -143,6 +146,7 @@ void NewMovieFrame(void* self, const void* event) {
                {"render_time_seconds", Read<float>(event, 0x28)},
                {"real_time_seconds", Read<float>(event, 0x2c)},
                {"native_observation", Observation::Snapshot("movie_submission")},
+               {"native_clock", ClockTrace::Snapshot("movie_submission")},
                {"state_before", state}, {"movie_flags", flags}};
         // The submission identity is published before native code queues the TGA.
         { std::lock_guard<std::mutex> lock(ledgerMutex); lastMovie = row; }
@@ -155,6 +159,7 @@ void NewMovieFrame(void* self, const void* event) {
         row["counter_after"] = Read<uint64_t>(self, 0x138);
         lastCounterAfter = Read<uint64_t>(self, 0x138);
         row["replay_demo_tick_after"] = Tick();
+        row["native_clock_after"] = ClockTrace::Snapshot("movie_submission_after");
         Write(std::move(row));
     }
 }
@@ -194,6 +199,7 @@ bool NewReadPixels(void* self, void* texture, const int* sourceRect, int unknown
         row["native_caller_rva"] = "0x1e88c6";
         row["clock_on_engine_thread"] = GetCurrentThreadId() == engineThread;
         row["native_observation"] = Observation::Snapshot("pixel_readback_before");
+        row["native_clock"] = ClockTrace::Snapshot("pixel_readback_before");
     }
     const bool result = originalReadPixels(self, texture, sourceRect, unknown3, unknown4,
                                            destRect, pixels, format, unknown8);
@@ -201,6 +207,7 @@ bool NewReadPixels(void* self, void* texture, const int* sourceRect, int unknown
         row["success"] = result;
         row["replay_demo_tick_after"] = Tick();
         row["native_observation_after"] = Observation::Snapshot("pixel_readback_after");
+        row["native_clock_after"] = ClockTrace::Snapshot("pixel_readback_after");
         // Query only after the actual native readback has finished. The exact
         // screenshot caller obtains this texture description via the same slot.
         using TextureInfoFn = const BYTE* (*)(void*, void*);
@@ -277,9 +284,13 @@ void Initialize() {
     ledger = fopen(path, "wx");
     if (!ledger) PluginError("Capture evidence path must be new and writable: %s", path);
     const auto observation = Observation::Initialize();
+    const auto packetTrace = PacketTrace::Initialize();
+    const auto networkClock = ClockTrace::Initialize();
     Write({{"event", "header"}, {"schema_version", 1}, {"hook", "engine2.CMovieRecorder.movie_frame_submit+ReadTexturePixels"},
            {"engine_sha256", EngineSha}, {"pixel_correspondence_validated", false},
            {"native_observation", observation},
+           {"native_clock", networkClock},
+           {"packet_trace", packetTrace},
            {"clock", "IDemoFile.GetDemoTick"}, {"fraction_available", false},
            {"training_ready", false}, {"readback_hash", "SHA256_RGB_native_rows_and_flipped_rows"},
            {"render_clock", {{"field", "EventClientOutput_t.m_flRenderTime"}, {"units", "seconds"},
@@ -293,6 +304,8 @@ void Initialize() {
     PatchVTableEntry(movieVtable, 9, reinterpret_cast<void*>(&NewMovieFrame));
     PatchVTableEntry(movieVtable, 2, reinterpret_cast<void*>(&NewMovieEnd));
     PatchVTableEntry(renderVtable, 74, reinterpret_cast<void*>(&NewReadPixels));
+    PacketTrace::Install();
+    ClockTrace::Install();
     Trace("Native capture evidence hooks installed for verified engine2.dll; raw ledger=%s", path);
 }
 } // namespace ChickenCapture

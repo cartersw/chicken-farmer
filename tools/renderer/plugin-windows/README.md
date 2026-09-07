@@ -15,6 +15,9 @@ Opt-in native movie and pixel-readback evidence is described in
 [CAPTURE_HOOK.md](CAPTURE_HOOK.md). It requires `-chicken-capture-log` with a new
 absolute output path and refuses unknown engine binaries. This evidence does not
 automatically make a capture ready for training.
+The new [network clock instrumentation](CLOCK_HOOK.md) observes actual delivered
+message clocks and recorded command envelopes; its current build still needs
+runtime validation against the independently extracted demo messages.
 
 This builds an x64 Windows adaptation of the pinned Reka plugin. It is a
 development capture component: successful compilation does not verify its

@@ -66,6 +66,7 @@ def adapt_source(source: str) -> str:
     replace('    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).',
             '    ChickenSettings::BeforeCommands();\n'
             '    ChickenCapture::Initialize();\n\n'
+            '    ChickenCapture::ClockTrace::BeforeCommands();\n\n'
             '    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).')
     replace('                    engine->ExecuteClientCmd(0, action.cmd.c_str(), true);',
             '                    ChickenCapture::ObserveCommand(action.cmd, "before");\n'
@@ -250,6 +251,8 @@ def main() -> None:
     (args.output / "hook_fallback.inc").write_bytes(fallback)
     (args.output / "capture_trace.inc").write_bytes(Path(__file__).with_name("capture_trace.inc").read_bytes())
     (args.output / "observation_trace.inc").write_bytes(Path(__file__).with_name("observation_trace.inc").read_bytes())
+    (args.output / "clock_trace.inc").write_bytes(Path(__file__).with_name("clock_trace.inc").read_bytes())
+    (args.output / "packet_trace.inc").write_bytes(Path(__file__).with_name("packet_trace.inc").read_bytes())
     (args.output / "settings_isolation.inc").write_bytes(Path(__file__).with_name("settings_isolation.inc").read_bytes())
     (args.output / "icvar.h").write_text(icvar, encoding="utf-8", newline="\n")
     (args.output / "convar.cpp").write_bytes(convar_source)

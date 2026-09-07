@@ -12,8 +12,12 @@ The Windows validation campaign covers three players and rounds at 1280x720/32 f
 **480 frames paired with 960 commands**, with raw images, MP4 and inspectors.
 Every frame passes native pixel matching and exact first-person identity checks.
 The new [validation](docs/VALIDATION.md) and [sample acceptance](docs/ACCEPTANCE.md)
-commands publish explicit evidence and rejection reasons. No samples are accepted
-yet: command execution and observation-phase timing remain unverified.
+commands publish explicit evidence and rejection reasons. That historical
+campaign remains diagnostic. The new [future-command profile](docs/SYNCHRONIZATION.md)
+has **129 accepted training samples** from protected trial 016, each with eight
+images and a strictly future command/aim target. Complete packet bounds and
+source evidence are recomputed before acceptance. This is a small pilot; no
+model has been trained. Steam Cloud testing is deferred.
 
 ## Included
 

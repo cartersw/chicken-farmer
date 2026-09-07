@@ -1,6 +1,26 @@
 # Current implementation status
 
-**Checkpoint: 2026-09-07 — local settings protection verified; Steam online testing remains.**
+**Checkpoint: 2026-09-07 — packet clock bounds verified; first 129 training samples accepted.**
+
+The new `recorded_future_server_command_v1` profile accepts **129 samples** from
+protected capture `windows-timing-016`. Each sample contains eight image
+references and one future command. Both commands used for the normalized aim
+difference have support strictly after the image's verified information ceiling.
+Of 160 candidate positions, 31 are rejected for incomplete temporal windows or
+input-quality failures. This is a five-second pilot, not a training corpus of
+sufficient size or a trained model.
+
+The public outputs are under `data/accepted/dust2-causal-016-v1/`: accepted and
+rejected JSONL, `causal_acceptance.json`, and the directly scanned source-packet
+evidence. Acceptance and its loader recompute the source proof. See
+[synchronization and target semantics](../SYNCHRONIZATION.md).
+
+All 160 images pass pixel and first-person identity checks. The packet audit
+reconstructs 7,045 paired reads: 2,690 match original packet bytes and 189 match
+the independently reproduced native seek filter, with zero unmatched packets.
+Earlier seek information remains in the bound. Trial 016 exited successfully,
+preserved all 39 protected settings files, restored gameinfo, and removed its
+staged plugin from CS2. **Steam Cloud testing is deferred at the user's request.**
 
 The Windows worker now backs up selected preferences, launches with a cloned
 settings profile, requires a native config Cloud/path guard, and restores
@@ -21,7 +41,9 @@ settings. The new baseline cannot recover preferences from before those runs.
 The Windows pipeline now has a real three-player, three-round validation campaign:
 **480 captured frames, 960 aligned commands, and 480 exact first-person POV checks passing.**
 It produces accepted/rejected sample manifests with specific reasons.
-**No real samples are accepted for training yet:** execution-clock and observation-phase proof remains incomplete.
+That historical strict campaign still accepts zero samples. Its original
+fractional-trajectory assumptions are not promoted by the new, narrower
+future-command profile, and none of its original artifacts were relabeled.
 
 ## What works
 
@@ -35,12 +57,13 @@ It produces accepted/rejected sample manifests with specific reasons.
 | Frame/action alignment | Each latest clip contains 160 frames and 320 commands with no empty intervals, normalized aim and an interactive inspector. Future interval assignments remain diagnostic. |
 | Broader action checks | Captures cover firing, dynamic aim, movement, jump/landing and crouch transitions across Ckanic, Nikodeon and ay0k. |
 | Sample acceptance | Configurable image history, previous actions and future intervals; exact raw IDs; phase, pause, death, continuity, normalized-label and subtick checks. Local failed evidence rejects affected windows. |
+| Future-command acceptance | 129 actual samples from trial 016, using complete packet bounds, scoped server-command support, eight images, and a wholly future normalization pair. Previous-action features and subtick trajectories are excluded. |
 | Integrity / context | Hashes and source identities are checked; validation is recomputed before acceptance. Independent state/weapon audits reject ambiguous observations and untrusted parser warnings. Originals remain intact. |
 
 Guides: [Validation](../VALIDATION.md), [Acceptance](../ACCEPTANCE.md),
 [Windows rendering](../WINDOWS_RENDERING.md), [State context](../STATE_CONTEXT.md).
 
-## Latest settings-protection trial
+## Settings-protection baseline
 
 - Output: `data/rendered/windows-settings-012/329360cba39babc8ea2d661c.mp4`.
 - Independent settings/video proof: `data/rendered/windows-settings-012/settings-verification.json`.
@@ -55,7 +78,7 @@ pixel readbacks match all 64 archived images. Its DLL hash is
 These checks concern settings isolation and capture integrity; the separate
 training campaign below retains its original counts and timing limitations.
 
-## Latest real campaign
+## Historical strict validation campaign
 
 All three clips use Dust2 and the same native DLL/HUD profile.
 
@@ -101,7 +124,7 @@ events remain **byte-identical**; only state and metadata changed. Existing aim
 normalization remains usable through its command-file hash. Nuke and Cache's
 historical state artifacts have not yet been migrated.
 
-## What remains unverified
+## Limits of the historical fractional alignment
 
 The isolated shot's network time exactly matches
 `server_tick_executed - 1 + subtick.when` and falls inside frame 50's measured
@@ -117,6 +140,15 @@ tolerances to force acceptance.
 Independent diagnostic audits at `data/validation/dust2-native-simulation-{008,009,010}/audit.json`
 record exact pawn eye-angle agreement on all 480 frames at the tested simulation
 coordinate. They retain position/crouch discrepancies and do not certify timing.
+
+The accepted profile instead uses complete source-packet information bounds and
+the scoped server command interval documented in
+[SERVER_COMMAND_SUPPORT.md](../SERVER_COMMAND_SUPPORT.md). It predicts recorded
+command values with an explicit delay. Exact original human sampling times,
+complete subtick trajectories, all visual effect times, and original-client HUD
+equivalence remain outside that claim. The observer name/weapon strip remains
+visible in the current replay HUD. Broader player, weapon, map and build coverage
+still needs additional captures and validation.
 
 ## Full-demo quality
 

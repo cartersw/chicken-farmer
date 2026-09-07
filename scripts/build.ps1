@@ -7,7 +7,7 @@ $env:GOCACHE = Join-Path $repo '.cache\go-build'
 New-Item -ItemType Directory -Force -Path (Join-Path $repo 'bin') | Out-Null
 Push-Location (Join-Path $repo 'tools\usercmd-extractor')
 try {
-    foreach ($toolName in @('cs2-extract', 'cs2-phases', 'cs2-context')) {
+    foreach ($toolName in @('cs2-extract', 'cs2-phases', 'cs2-context', 'cs2-clocks')) {
         & $goExe build -trimpath -o (Join-Path $repo "bin\$toolName.exe") "./cmd/$toolName"
         if ($LASTEXITCODE -ne 0) { throw "Go build failed: $toolName" }
     }
