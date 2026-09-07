@@ -4,6 +4,8 @@
 #include <bcrypt.h>
 #include <intrin.h>
 #include <iomanip>
+#include <cmath>
+#include <type_traits>
 
 namespace ChickenCapture {
 constexpr const char* EngineSha = "26dc9c5fee70312e7851d87c2383f70cc4d036247d8de04e3cf342ccc20773ac";
@@ -79,6 +81,8 @@ json DemoStartTick() {
     return demo->GetDemoStartTick();
 }
 
+#include "observation_trace.inc"
+
 string MovieName(void* self) {
     auto name = Read<const char*>(self, 0x130);
     return name ? string(name, strnlen(name, 1024)) : string();
@@ -119,6 +123,7 @@ void NewMovieFrame(void* self, const void* event) {
                {"demo_start_tick", DemoStartTick()},
                {"render_time_seconds", Read<float>(event, 0x28)},
                {"real_time_seconds", Read<float>(event, 0x2c)},
+               {"native_observation", Observation::Snapshot("movie_endpoint")},
                {"native_state_before", state},
                {"clock_phase", "first_movie_callback_after_recording_stopped"}});
         movieWasRecording = false;
@@ -137,6 +142,7 @@ void NewMovieFrame(void* self, const void* event) {
                {"submission_event_time_raw", Read<float>(event, 0x2c)},
                {"render_time_seconds", Read<float>(event, 0x28)},
                {"real_time_seconds", Read<float>(event, 0x2c)},
+               {"native_observation", Observation::Snapshot("movie_submission")},
                {"state_before", state}, {"movie_flags", flags}};
         // The submission identity is published before native code queues the TGA.
         { std::lock_guard<std::mutex> lock(ledgerMutex); lastMovie = row; }
@@ -187,12 +193,14 @@ bool NewReadPixels(void* self, void* texture, const int* sourceRect, int unknown
         row["native_argument9"] = unknown8;
         row["native_caller_rva"] = "0x1e88c6";
         row["clock_on_engine_thread"] = GetCurrentThreadId() == engineThread;
+        row["native_observation"] = Observation::Snapshot("pixel_readback_before");
     }
     const bool result = originalReadPixels(self, texture, sourceRect, unknown3, unknown4,
                                            destRect, pixels, format, unknown8);
     if (!row.is_null()) {
         row["success"] = result;
         row["replay_demo_tick_after"] = Tick();
+        row["native_observation_after"] = Observation::Snapshot("pixel_readback_after");
         // Query only after the actual native readback has finished. The exact
         // screenshot caller obtains this texture description via the same slot.
         using TextureInfoFn = const BYTE* (*)(void*, void*);
@@ -268,8 +276,10 @@ void Initialize() {
     if (!originalReadPixels || !renderVtable[90]) PluginError("Capture hook render interface is incomplete");
     ledger = fopen(path, "wx");
     if (!ledger) PluginError("Capture evidence path must be new and writable: %s", path);
+    const auto observation = Observation::Initialize();
     Write({{"event", "header"}, {"schema_version", 1}, {"hook", "engine2.CMovieRecorder.movie_frame_submit+ReadTexturePixels"},
            {"engine_sha256", EngineSha}, {"pixel_correspondence_validated", false},
+           {"native_observation", observation},
            {"clock", "IDemoFile.GetDemoTick"}, {"fraction_available", false},
            {"training_ready", false}, {"readback_hash", "SHA256_RGB_native_rows_and_flipped_rows"},
            {"render_clock", {{"field", "EventClientOutput_t.m_flRenderTime"}, {"units", "seconds"},

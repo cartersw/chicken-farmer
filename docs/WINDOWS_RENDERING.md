@@ -6,6 +6,13 @@ The first target is a short, inspectable Dust2 player POV clip; producing video
 does not establish that frames are aligned with command execution.
 
 **Local result:** native capture succeeds on CS2 1.41.7.8 at 1280x720/32 fps.
+The settings-isolation build passed the live `windows-settings-012` trial:
+64 frames, a two-second MP4, clean CS2 exit, and all 39 selected personal settings
+files unchanged. Earlier captures used the previous build, which restored
+`gameinfo.gi` but did not back up personal preferences.
+The user subsequently reported Steam **Offline Mode**. Online Steam Cloud and
+reconnection behavior have not been validated; the worker did not measure Steam's
+network mode during this trial.
 The competitive pilot now uses Ckanic's first scored Dust2 round, including a
 Glock shot and aim turn. The planner excludes the earlier knife/setup phase.
 Native HUD controls remove spectator statistics and chat while preserving player
@@ -95,15 +102,95 @@ an isolated plugin search path and demo sidecar, and records the process it owns
 Only that process may be terminated if the run times out. Existing game sessions
 are refused. The original demo is never edited.
 
-The runner saves the original `gameinfo.gi` bytes and a recovery journal before
-changing the search path. Normal completion and handled failures restore those
-bytes; unexpected external changes are preserved and reported for review.
-Recovery instructions and the journal location are printed on failure. The
-gameinfo transaction does not restore all CS2 user preferences: resolution and
-console settings can be saved by CS2. Run-owned plugin folders, backups and
-failure evidence are retained; after restoring the search path they are inactive.
-Do not
-copy the proxy DLL over CS2's real server DLL or use the Linux install script.
+The runner saves the original `gameinfo.gi` bytes and selected personal settings
+before launch. It clones the user's configuration into a private render profile,
+requires the native settings guard, and restores verified settings after the
+owned CS2 process exits. This protection passed the bounded live trial described
+below. Do not copy the proxy DLL over CS2's real server DLL or use the Linux
+install script.
+
+## Keeping normal play separate
+
+Before the first protected trial, set CS2's audio, video and HUD to your normal
+preferences, then close it. There is no complete backup from before the earlier
+renders, so the new worker preserves the preferences present when each run starts.
+Keep Steam running. Leave CS2 closed and avoid editing its settings while a
+render or recovery is in progress; launch it normally through Steam afterward.
+
+Every executed run now performs this sequence:
+
+1. Refuse an existing CS2 process and resolve the Steam client/account. If
+   discovery is ambiguous, use `--steam-dir` and `--steam-user-id` explicitly.
+2. Save selected local/remote config and installation config files under the
+   run's `settings-backup/`, with hashes, timestamps, read-only flags and a
+   durable `settings-recovery.json`. Root locks prevent overlapping renderers.
+3. Clone the saved local configuration into `replay-settings/cfg`. Only the
+   launched CS2 process receives `USRLOCALCSGO=<run>/replay-settings`; the parent
+   environment, Steam launch options and Steam Cloud preference are not changed.
+4. Require a compatible native guard. It checks the real settings read/write
+   paths and blocks the engine's config RemoteStorage interface inside the owned
+   process. It refuses startup if that Cloud interface was already used or the
+   exact game binaries are unsupported. Old plugin DLLs fail preflight.
+5. After the owned process stops, restore `gameinfo.gi`, archive the observed
+   post-run settings, verify backups, and restore changed selected files exactly.
+   Restore removed originals and remove selected files absent from the pre-render
+   snapshot.
+   Normal completion, launch failure, timeout and handled interruption all run
+   cleanup. Changes detected before launch or after the poststate is sealed are
+   preserved and reported as conflicts. Changes made during capture cannot be
+   attributed reliably; restoring the baseline also rolls back those changes.
+6. Move this run's staged plugin directory out of CS2 into
+   `<run>/renderer-sandbox/`, preserving raw captures and diagnostic evidence.
+   Encoding begins only after cleanup and native proof verification succeed.
+
+The selected roots are `Steam/userdata/<id>/730/local/cfg`,
+`Steam/userdata/<id>/730/remote`, and `game/csgo/cfg`. Selection covers CS2 user,
+machine and key VCFG files, local video settings/backups, and CFG files in those
+roots (plus `remote/cfg`). The exact selectors and exclusions are recorded in
+the journal. Inventory/voice caches, `trustedlaunch.cfg`, Steam metadata and
+account-wide settings are outside this restoration scope. The separate Steam
+client can still update its own metadata or synchronize files; the native guard
+does not claim to control it. See the [native isolation evidence and limits](../tools/renderer/plugin-windows/SETTINGS_ISOLATION.md).
+
+All 17 historical inactive renderer folders were individually verified and moved
+into their original workspace run's `renderer-sandbox/`. The archival report is
+`data/settings-audits/historical-staging-2026-09-07.json`; it records each source,
+destination and owning journal hash. No `chicken-render-*` folders remained in
+the game installation after cleanup. New cleanup does not sweep unrelated directories.
+No renderer DLL is copied over the original game DLL. The renderer's `-insecure`
+flag and hooks belong to its process and end when that process exits.
+
+### Live protection verification
+
+After the user restored normal preferences, trial `windows-settings-011` passed
+the native isolation checks and retained all 39 selected personal files unchanged.
+It captured 64 frames but crashed during DLL shutdown. The crash dump identified
+the optional `dem_render_info` command's destructor unregistering after the
+engine command registry was destroyed. The Windows adaptation now omits that
+unused registration; the process-lifetime Cloud guard remains active.
+
+Repeat trial `data/rendered/windows-settings-012/` exited with code zero and
+produced `329360cba39babc8ea2d661c.mp4`: **64 frames, 1280x720, 32 FPS, two seconds**.
+All 64 retained images match native pixel-readback hashes. The native handshake
+verified the clone's actual read/write paths before capture commands and retained
+the config Cloud guard through its shutdown observation.
+
+An independent read-only comparison in `settings-verification.json` confirmed
+all 39 personal files match their backups in bytes, size, timestamps and read-only
+flags. The baseline also matches trial 011. No selected personal files needed
+restoration writes; only the clone's machine/video configuration changed.
+Original/post backups verified, locks released, and gameinfo and plugin cleanup
+completed. This verifies the selected files and exact installed binaries; it
+does not establish training timing or cover every Steam subsystem.
+The user also launched CS2 normally through Steam afterward and confirmed that
+audio, video and HUD preferences look correct.
+They then clarified that Steam is in Offline Mode. The native guard's blocked
+interface acquisition remains measured evidence, while actual online Cloud
+synchronization and post-reconnection settings require a separate test. The
+later user report is retained as `windows-settings-012/validation-context.json`;
+the original capture and verification records remain unchanged.
+
+## Interrupted-run recovery
 
 After an interrupted worker, close CS2 and restore using its recorded journal:
 
@@ -111,8 +198,28 @@ After an interrupted worker, close CS2 and restore using its recorded journal:
 .\.venv\Scripts\python.exe tools/renderer/windows.py --repair data/rendered/windows-pilot/gameinfo-recovery.json
 ```
 
-Repair verifies the original and patched hashes and refuses unknown edits or
-another run's lock. It never kills a process using a stale PID from a journal.
+Repair restores gameinfo, recovers a sibling settings journal if present, and
+moves that run's plugin directory back into the workspace. It verifies hashes
+and lock ownership and never kills a process using a stale PID from a journal.
+Completed settings recovery is idempotent: rerunning it does not undo later
+normal preferences.
+
+If the worker was killed before recording the settings poststate, automatic
+rollback is withheld. Review the journal, close CS2 and use the explicit recovery
+flag to preserve the current state as additional evidence before restoring the
+pre-render baseline:
+
+```powershell
+.\.venv\Scripts\python.exe tools/renderer/windows.py --repair data/rendered/windows-pilot/gameinfo-recovery.json --seal-current-settings
+```
+
+This can undo preferences changed after the interrupted render, so it is never
+enabled automatically. If startup failed before creating a gameinfo journal,
+use `--repair-settings <run>/settings-recovery.json` instead, with the same
+explicit sealing flag when an unsealed complete snapshot requires it. Keep
+backups and locks if a restore reports corrupted evidence or an external change;
+do not delete them to bypass the conflict. A machine shutdown or force-killed
+worker cannot execute its normal cleanup code.
 
 ## Inspect the result
 
@@ -125,6 +232,46 @@ Raw TGAs remain unchanged. `capture_frame_files.json` records each original
 native filename, archived filename and SHA256. The capture ledger adds movie
 counters and pixel-readback evidence. The encoded visual profile is recorded in
 the render manifest; see [HUD cleanup](HUD_PROFILE.md).
+
+### Native POV and camera evidence
+
+Trial `data/rendered/windows-validation-008/` completed with 160 movie frames,
+160 pixel readbacks and one measured endpoint. Every movie frame resolved
+Ckanic's Steam ID `76561198323592528` through the native local controller,
+observer pawn, observer-target handle, target pawn and target controller. Full
+entity handles are checked, including their serial bits; the plugin does not
+populate identity from the requested slot or player name. Observer mode was 2
+throughout this trial; the installed binary's schema enum identifies 2 as
+`OBS_MODE_IN_EYE`. The controller entity index was 10; this is recorded as
+an entity index and is not assumed to be the demo's player slot.
+
+All 160 frames contained the current `CViewRender` camera position and angles;
+its independently read matrix-input position and angles matched those values.
+Pawn eye angles and feet position are separate fields. Each observation names
+its actual boundary: movie submission, movie endpoint, or before/after native
+pixel readback. Camera state agreement is evidence to examine; it does not
+alone prove that the camera and target input share a simulation phase.
+The complete POV and camera records also matched movie submission and both
+sides of pixel readback for all 160 frames.
+
+Native weapon state changed at frame 51 from 20 to 19 Glock rounds, with
+`m_fLastShotTime = 262.56298828125` seconds. That frame's measured render time
+was `262.58892822265625` seconds. These independent values permit checking
+whether a shot preceded an image rather than assuming an integer command tick
+is sufficient. The controller's first observed tick base was 16703 and the
+pawn's simulation time was `260.984375` seconds. The pawn's native last-executed
+command number/tick were both **-1 for all 160 frames**, its simulation tick
+was -1, and the movement service's processed command number was 0. These
+sentinels provide no usable execution-time anchor.
+
+The observation reader requires exact SHA256 matches for installed client,
+schema-system and engine binaries. It resolves named runtime schema fields and
+uses bounded `ReadProcessMemory` reads, validated counts and strings, runtime
+class checks and complete entity-handle checks. Missing or unreadable fields
+remain unavailable; worker-thread observations never call engine interfaces.
+The guarded native pause getter is recorded separately from match pause state.
+Source evidence, binary RVAs, field names and limitations are documented in
+[the native observation contract](../tools/renderer/plugin-windows/OBSERVATION_HOOK.md).
 
 Process a completed instrumented run into a diagnostic frame/action dataset:
 

@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -22,6 +23,11 @@ import uuid
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent
+# Keep the standalone worker usable without installing this tools directory.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import settings_guard
+
 TARGET_PATCH = "1.41.6.5"
 PROFILE = "windows-pilot-v5-native-player-hud"
 HUD_COMMANDS = [
@@ -38,6 +44,83 @@ HUD_COMMANDS = [
 ]
 MAX_PILOT_TICKS = 320
 MOD_RE = re.compile(r"chicken-render-[0-9a-f]{32}\Z")
+SETTINGS_SELECTORS = {
+    "steam_local_cfg": ["cs2_*.vcfg", "cs2_*.vcfg_lastclouded", "cs2_video.txt", "cs2_video.txt.bak", "*.cfg"],
+    "steam_remote": ["*.vcfg", "*.vcfg_lastclouded", "cfg/*.cfg", "cfg/*.vcfg"],
+    "game_cfg": ["*.cfg", "*.vcfg"],
+}
+SETTINGS_EXCLUDES = {"steam_local_cfg": ["trustedlaunch.cfg"]}
+
+
+def require_cs2_idle() -> None:
+    if cs2_pids():
+        raise ValueError("Close CS2 before backing up or restoring personal settings; no unrelated game process is terminated")
+
+
+def discover_settings_roots(game: Path, steam_dir: Path | None = None,
+                            steam_user_id: str | None = None) -> dict[str, Path]:
+    """Find the actual Steam client/userdata, including games in other libraries."""
+    registry_root = None
+    active_user = None
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+                registry_root = Path(winreg.QueryValueEx(key, "SteamPath")[0])
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam\ActiveProcess") as key:
+                active_user = str(winreg.QueryValueEx(key, "ActiveUser")[0])
+        except OSError:
+            pass
+    candidates = [steam_dir] if steam_dir is not None else [registry_root, *game.resolve().parents]
+    if steam_dir is None:
+        program_files = os.environ.get("ProgramFiles(x86)")
+        if program_files:
+            candidates.append(Path(program_files) / "Steam")
+    clients = {path.resolve() for path in candidates if path is not None and
+               (path / "steam.exe").is_file() and (path / "userdata").is_dir()}
+    if len(clients) != 1:
+        raise ValueError("Cannot identify one Steam client userdata directory; supply --steam-dir explicitly")
+    steam = clients.pop()
+    accounts = {path.name: path for path in (steam / "userdata").iterdir()
+                if path.is_dir() and re.fullmatch(r"[0-9]{1,10}", path.name) and (path / "730/local").is_dir()}
+    user = steam_user_id or (active_user if active_user in accounts else None)
+    if user is None and len(accounts) == 1:
+        user = next(iter(accounts))
+    if user is None or not re.fullmatch(r"[0-9]{1,10}", user) or user not in accounts:
+        raise ValueError("Cannot identify the CS2 settings account; supply --steam-user-id (userdata directory number)")
+    base = accounts[user] / "730"
+    return {"steam_local_cfg": base / "local/cfg", "steam_remote": base / "remote", "game_cfg": game.resolve() / "csgo/cfg"}
+
+
+def relocate_owned_mod(game: Path, out: Path, mod_name: str) -> Path | None:
+    """Move this inactive run's entire staging folder back to its workspace."""
+    require_cs2_idle()
+    if not MOD_RE.fullmatch(mod_name):
+        raise ValueError("Invalid run-owned mod directory")
+    game, out = game.resolve(), out.resolve()
+    if out.is_relative_to(game) or game.is_relative_to(out):
+        raise ValueError("Mod archive must be outside the game installation")
+    source = game / "csgo" / mod_name
+    destination = out / "renderer-sandbox"
+    if not source.exists():
+        return destination if destination.is_dir() else None
+    if b"csgo/chicken-render-" in (game / "csgo/gameinfo.gi").read_bytes():
+        raise ValueError("Restore the renderer search path before moving its plugin")
+    if source.resolve() != source or destination.exists():
+        raise ValueError("Unsafe or occupied mod archive location")
+    # Reject links before any move; never traverse into a different installation.
+    pending = [source]
+    while pending:
+        path = pending.pop()
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError("Run-owned staging contains a reparse point; refusing to move it")
+        if path.is_dir():
+            pending.extend(path.iterdir())
+    shutil.move(str(source), str(destination))
+    if source.exists() or not destination.is_dir():
+        raise RuntimeError("Run-owned plugin relocation did not complete")
+    return destination
 
 
 def sha256_file(path: Path) -> str:
@@ -288,10 +371,51 @@ def launch_arguments(game: Path, job: dict[str, Any], demo: Path, log: Path,
     arguments = [str(game / "bin/win64/cs2.exe"), "-steam", "-insecure", "-novid",
                  "-windowed", "-w", str(job["width"]), "-h", str(job["height"]),
                  "-forcenovsync", "-chicken-render-log", str(log),
-                 "-chicken-capture-log", str(log.parent / "capture_ledger.jsonl")]
+                 "-chicken-capture-log", str(log.parent / "capture_ledger.jsonl"),
+                 "-chicken-render-settings", str(log.parent / "replay-settings"),
+                 "-chicken-render-isolation", str(log.parent / "settings-isolation.json")]
     if allow_version_mismatch:
         arguments += ["+demo_allow_game_mismatch", "1"]
     return arguments + ["+playdemo", str(demo)]
+
+
+def require_isolation_plugin(plugin: Path) -> None:
+    if b"CHICKEN_SETTINGS_ISOLATION_V1" not in plugin.read_bytes():
+        raise ValueError("This DLL predates settings isolation; rebuild the Windows plugin before rendering")
+
+
+def verify_settings_isolation(out: Path, expected_pid: int | None = None) -> dict[str, Any]:
+    path = out / "settings-isolation.json"
+    proof = read_json(path)
+    expected = out / "replay-settings"
+    search_paths = [part for part in str(proof.get("usrlocal_search_path", "")).split(";") if part]
+    if (proof.get("schema_version") != 1 or proof.get("status") != "ready" or
+            proof.get("policy") != "CHICKEN_SETTINGS_ISOLATION_V1" or
+            Path(proof.get("settings_root", "")).resolve() != expected.resolve() or
+            len(search_paths) != 1 or Path(search_paths[0]).resolve() != expected.resolve() or
+            Path(proof.get("usrlocal_write_path", "")).resolve() != (expected / "cfg/chicken-isolation-probe.vcfg").resolve() or
+            expected_pid is not None and proof.get("pid") != expected_pid or
+            any(proof.get(field) is not True for field in
+                ("cloud_hook_installed", "cloud_cache_uninitialized_at_install", "startup_guard_passed", "local_path_verified")) or
+            proof.get("cloud_interface") != "STEAMREMOTESTORAGE_INTERFACE_VERSION016" or
+            proof.get("scope") != "engine2_user_config_remote_storage"):
+        raise ValueError("Native settings isolation did not prove its startup/path/Cloud guards; capture is not complete")
+    return {**proof, "proof_path": str(path), "proof_sha256": sha256_file(path)}
+
+
+def repair_run(journal_path: Path, *, seal_current_settings: bool = False) -> dict[str, Any]:
+    """Recover the run in order: unload path, preferences, then owned plugin files."""
+    require_cs2_idle()
+    original = read_json(journal_path)
+    result = {"gameinfo": restore_gameinfo(journal_path)}
+    settings_path = journal_path.resolve().parent / "settings-recovery.json"
+    if settings_path.exists():
+        if seal_current_settings:
+            settings_guard.seal_interrupted(settings_path, require_idle=require_cs2_idle)
+        result["settings"] = settings_guard.restore_settings(settings_path, require_idle=require_cs2_idle)
+    archived = relocate_owned_mod(Path(original["game_dir"]), journal_path.resolve().parent, original["mod_name"])
+    result["archived_game_mod_dir"] = str(archived) if archived is not None else None
+    return result
 
 
 def steam_info(game: Path) -> dict[str, str]:
@@ -508,12 +632,26 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
     }
     atomic_json(manifest_path, report)
     process = None
+    settings = None
     failure: BaseException | None = None
     try:
         ffmpeg, ffprobe, info = preflight(game, plugin, args.ffmpeg, args.ffprobe, args.allow_version_mismatch)
         report["cs2_build"] = info
         report["plugin_sha256"] = sha256_file(plugin)
         report["plugin_source_sha256"] = report["plugin_sha256"]
+        require_isolation_plugin(plugin)
+        roots = discover_settings_roots(game, args.steam_dir, args.steam_user_id)
+        settings = settings_guard.SettingsLease(out, run_id, roots,
+            selectors={name: SETTINGS_SELECTORS[name] for name in roots},
+            excludes={name: values for name, values in SETTINGS_EXCLUDES.items() if name in roots})
+        report["settings_recovery_journal"] = str(settings.journal_path)
+        report["settings_roots"] = {name: str(path) for name, path in roots.items()}
+        report["settings_restored"] = False
+        atomic_json(manifest_path, report)
+        require_cs2_idle()
+        settings.snapshot()
+        settings.clone_root("steam_local_cfg", out / "replay-settings/cfg")
+        atomic_json(manifest_path, report)
         with (out / "job.json").open("x", encoding="utf-8") as handle:
             json.dump(job, handle, indent=2)
         staged = out / "input.dem"
@@ -533,6 +671,8 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         (lease.mod_dir / "movie").mkdir()
         if capture_files(movie_roots, capture_job["clip_id"]):
             raise ValueError("Capture prefix already exists; refusing to mix frames from separate attempts")
+        settings.verify_unchanged()
+        require_cs2_idle()
         lease.activate()
         if cs2_pids():
             raise ValueError("CS2 started during worker setup; refusing to launch another process")
@@ -540,7 +680,9 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         report["launch_arguments"] = launch
         report["render_status"] = "rendering"
         atomic_json(manifest_path, report)
-        environment = {**os.environ, "SteamAppId": "730", "SteamGameId": "730"}
+        environment = {**os.environ, "SteamAppId": "730", "SteamGameId": "730",
+                       "USRLOCALCSGO": str(out / "replay-settings")}
+        report["settings_profile_directory"] = environment["USRLOCALCSGO"]
         print(f"Launching one offline replay; recovery journal: {lease.journal_path}", flush=True)
         with (out / "cs2-process.log").open("xb") as log:
             process = subprocess.Popen(launch, cwd=game, env=environment, stdout=log, stderr=subprocess.STDOUT,
@@ -572,6 +714,34 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
                 failure = failure or exc
         else:
             report["gameinfo_restored"] = "not_modified"
+        if settings is not None and settings.snapshot_complete:
+            try:
+                require_cs2_idle()
+                if process is None:
+                    settings.cancel_before_launch(require_cs2_idle)
+                    report["settings_restored"] = "not_modified"
+                else:
+                    settings.seal_after_exit(require_cs2_idle)
+                    restored = settings.restore(require_cs2_idle)
+                    report["settings_restored"] = restored.get("state") == "restored"
+                    report["settings_restore_verified"] = restored
+            except BaseException as exc:
+                report["settings_restored"] = False
+                report["settings_restoration_error"] = str(exc)
+                failure = failure or exc
+        else:
+            report["settings_restored"] = "not_modified"
+        if report["gameinfo_restored"] in (True, "not_modified"):
+            try:
+                archived_mod = relocate_owned_mod(game, out, lease.mod_name)
+                if archived_mod is not None:
+                    report["archived_game_mod_dir"] = str(archived_mod)
+                    movie_roots[0] = archived_mod / "movie"
+                report["staged_plugin_removed_from_game"] = not lease.mod_dir.exists()
+            except BaseException as exc:
+                report["staged_plugin_removed_from_game"] = False
+                report["plugin_cleanup_error"] = str(exc)
+                failure = failure or exc
         report["render_status"] = "failed" if failure else "captured_timing_unverified"
         report["finished_at_unix"] = time.time()
         atomic_json(manifest_path, report)
@@ -581,6 +751,7 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         atomic_json(manifest_path, report)
         raise RuntimeError(f"{failure}. Failed manifest: {manifest_path}") from failure
     try:
+        report["settings_isolation"] = verify_settings_isolation(out, expected_pid=process.pid)
         files = capture_files(movie_roots, capture_job["clip_id"])
         report["captured_frame_count"] = len(files)
         report["captured_count_matches_nominal"] = len(files) == report["nominal_num_frames"]
@@ -616,7 +787,12 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, help="Fresh workspace output directory (must not exist)")
     parser.add_argument("--execute", action="store_true", help="Explicitly patch the game temporarily and launch native CS2")
     parser.add_argument("--repair", type=Path, help="Restore a previous run using its gameinfo-recovery.json; never launch/kill CS2")
+    parser.add_argument("--repair-settings", type=Path, help="Recover a settings-recovery.json while CS2 is closed")
+    parser.add_argument("--seal-current-settings", action="store_true",
+                        help="Explicitly authorize sealing an interrupted run's current settings before recovery; never used by normal renders")
     parser.add_argument("--game-dir", type=Path, default=Path("C:/Program Files (x86)/Steam/steamapps/common/Counter-Strike Global Offensive/game"))
+    parser.add_argument("--steam-dir", type=Path, help="Steam CLIENT installation owning userdata (not a separate game library)")
+    parser.add_argument("--steam-user-id", help="Numeric Steam userdata directory; required when automatic account selection is ambiguous")
     parser.add_argument("--plugin", type=Path, default=ROOT / "build/plugin-windows/Release/server.dll")
     parser.add_argument("--ffmpeg", default=local_video_tool("ffmpeg"))
     parser.add_argument("--ffprobe", default=local_video_tool("ffprobe"))
@@ -631,13 +807,23 @@ def argument_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = argument_parser().parse_args(argv)
     try:
-        if args.repair:
+        if args.repair or args.repair_settings:
             if args.execute or args.spec or args.output:
                 raise ValueError("--repair is a separate recovery operation")
+            if args.repair and args.repair_settings:
+                raise ValueError("Choose one recovery journal")
             if sys.platform != "win32":
                 raise ValueError("Gameinfo repair must run on its native Windows worker")
-            print(json.dumps(restore_gameinfo(args.repair), indent=2))
+            if args.repair:
+                result = repair_run(args.repair, seal_current_settings=args.seal_current_settings)
+            else:
+                if args.seal_current_settings:
+                    settings_guard.seal_interrupted(args.repair_settings, require_idle=require_cs2_idle)
+                result = settings_guard.restore_settings(args.repair_settings, require_idle=require_cs2_idle)
+            print(json.dumps(result, indent=2))
             return 0
+        if args.seal_current_settings:
+            raise ValueError("--seal-current-settings is only for explicit recovery of an interrupted run")
         if args.spec is None or args.output is None:
             raise ValueError("Supply --spec and --output (dry-run unless --execute is also supplied)")
         if not math.isfinite(args.timeout) or not 10 <= args.timeout <= 1800:
@@ -659,6 +845,9 @@ def main(argv: list[str] | None = None) -> int:
                 "launch_arguments": launch_arguments(args.game_dir.resolve(), job, args.output.resolve() / "input.dem",
                                                       args.output.resolve() / "plugin.log", args.allow_version_mismatch),
                 "sequences": sequence, "note": "No output/game files changed. Execute requires an experimental compatible plugin and ffmpeg/ffprobe.",
+                "settings_protection": {"required": True, "profile_path": str(args.output.resolve() / "replay-settings"),
+                                        "recovery_journal": str(args.output.resolve() / "settings-recovery.json"),
+                                        "policy": "cloned-user-config-native-cloud-guard-and-byte-exact-restore"},
             }, indent=2))
             return 0
         print(json.dumps(run_capture(args, job, original), indent=2))

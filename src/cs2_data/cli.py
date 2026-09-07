@@ -8,12 +8,15 @@ import sys
 from pathlib import Path
 
 from .align import align
+from .acceptance import accept_samples
 from .calibration import calibrate
+from .campaign import summarize_campaign
 from .jobs import render_jobs
 from .normalize import normalize
 from .pipeline import process_render
 from .timing import prepare_timing
 from .viewer import viewer
+from .validation import validate_clip
 
 
 def parser() -> argparse.ArgumentParser:
@@ -66,6 +69,24 @@ def parser() -> argparse.ArgumentParser:
     pipeline.add_argument("--render-dir", type=Path, required=True)
     pipeline.add_argument("--out", type=Path, required=True)
     pipeline.add_argument("--normalized", type=Path)
+    validation = commands.add_parser("validate-clip", help="Recheck capture, native POV, timing, and action evidence")
+    validation.add_argument("--parsed", type=Path, required=True)
+    validation.add_argument("--dataset", type=Path, required=True)
+    validation.add_argument("--out", type=Path, required=True)
+    validation.add_argument("--state-context", type=Path, help="Independent observed game-rule and weapon-clock sidecar from cs2-context")
+    acceptance = commands.add_parser("accept-samples", help="Write accepted/rejected temporal sample manifests with explicit reasons")
+    acceptance.add_argument("--parsed", type=Path, required=True)
+    acceptance.add_argument("--dataset", type=Path, required=True)
+    acceptance.add_argument("--validation", type=Path, required=True)
+    acceptance.add_argument("--out", type=Path, required=True)
+    acceptance.add_argument("--state-context", type=Path)
+    acceptance.add_argument("--history-frames", type=int, default=8)
+    acceptance.add_argument("--target-horizon-frames", type=int, default=1)
+    acceptance.add_argument("--no-previous-actions", dest="include_previous_actions", action="store_false",
+                            help="Exclude previous actions from sample inputs; default includes them")
+    campaign = commands.add_parser("summarize-campaign", help="Revalidate and summarize several sample-acceptance runs")
+    campaign.add_argument("--acceptance", type=Path, nargs="+", required=True)
+    campaign.add_argument("--out", type=Path, required=True)
     alignment = commands.add_parser("align", help="Validate real video and join measured frame intervals to canonical commands")
     alignment.add_argument("--parsed", type=Path, required=True)
     alignment.add_argument("--timing", type=Path, required=True)
@@ -89,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = {"normalize": normalize, "render-jobs": render_jobs, "calibrate": calibrate,
                   "prepare-timing": prepare_timing, "process-render": process_render,
+                  "validate-clip": validate_clip, "accept-samples": accept_samples,
+                  "summarize-campaign": summarize_campaign,
                   "align": align, "viewer": viewer}[command](**args)
     except (ValueError, OSError, KeyError, TypeError) as error:
         print(json.dumps({"status": "error", "stage": command, "error": str(error)}), file=sys.stderr)

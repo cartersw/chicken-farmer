@@ -112,7 +112,7 @@ func Extract(opts Options) (output string, err error) {
 	}
 	manifest := schema.Manifest{DemoID: id, MatchID: opts.MatchID, SHA256: id, SourcePath: input, FileName: filepath.Base(input), FileSize: info.Size(),
 		IngestedAt: time.Now().UTC().Format(time.RFC3339), ParserVersion: schema.ParserVersion, ParserSchemaVersion: schema.Version,
-		ExtractorVersion: "0.1.1", ParseStatus: "running", RenderStatus: "pending", ValidationStatus: "see_validation_report", Warnings: map[string]int64{}, WarningExamples: map[string]string{}, Files: map[string]string{},
+		ExtractorVersion: "0.1.2", ParseStatus: "running", RenderStatus: "pending", ValidationStatus: "see_validation_report", Warnings: map[string]int64{}, WarningExamples: map[string]string{}, Files: map[string]string{},
 		Clocks:      map[string]string{"demo_tick": "CS2 demo packet header via GameState.IngameTick; not a frame counter", "demo_frame": "parser CurrentFrame; multiple frames may have same demo_tick", "server_tick_executed": "raw events.UserCmd.ServerTickExecuted; independent clock, zero may mean unavailable", "state_cadence": "available demo snapshots only, no synthesized 64 Hz state", "usercmd_demo_tick": "packet delivery tick, not necessarily command execution time; exact alignment needs execution clock calibration"},
 		ButtonMasks: map[string]uint64{"attack1": uint64(common.ButtonAttack), "attack2": uint64(common.ButtonAttack2), "jump": uint64(common.ButtonJump), "crouch": uint64(common.ButtonDuck), "move_forward": uint64(common.ButtonForward), "move_backward": uint64(common.ButtonBack), "move_left": uint64(common.ButtonMoveLeft), "move_right": uint64(common.ButtonMoveRight), "walk": uint64(common.ButtonSpeed), "reload": uint64(common.ButtonReload), "use": uint64(common.ButtonUse)}, ButtonMappingValidation: "library_constants_only"}
 	defer func() {
@@ -436,16 +436,36 @@ func floatProp(entity st.Entity, name string) *float64 {
 	return ptr(float64(v.Float()))
 }
 func paused(entity st.Entity) *bool {
-	// The proxy's data-table prefix is present in the pinned parser schema.
+	// CS2 exposes these five flags through m_pGameRules. Missing/untyped
+	// properties are unknown, never evidence that the match is unpaused.
+	if entity == nil {
+		return nil
+	}
 	result := false
-	for _, name := range []string{"cs_gamerules_data.m_bMatchWaitingForResume", "cs_gamerules_data.m_bTerroristTimeOutActive", "cs_gamerules_data.m_bCTTimeOutActive", "cs_gamerules_data.m_bTechnicalTimeOut"} {
-		v := boolProp(entity, name)
-		if v == nil {
+	for _, name := range []string{"m_bGamePaused", "m_bMatchWaitingForResume", "m_bTerroristTimeOutActive", "m_bCTTimeOutActive", "m_bTechnicalTimeOut"} {
+		v, exists := entity.PropertyValue("m_pGameRules." + name)
+		value, typed := v.Any.(bool)
+		if !exists || !typed {
 			return nil
 		}
-		result = result || *v
+		result = result || value
 	}
 	return &result
+}
+
+func magazineAmmo(entity st.Entity) *int32 {
+	if entity == nil {
+		return nil
+	}
+	v, exists := entity.PropertyValue("m_iClip1")
+	count, typed := v.Any.(uint32)
+	if !exists || !typed || count > 0x7fffffff {
+		return nil
+	}
+	// The recorded CS2 property already contains the magazine count. The
+	// pinned library helper subtracts one; native capture and the raw demo
+	// both show 20 while that helper returns 19 for the same Glock snapshot.
+	return ptr(int32(count))
 }
 
 func StateRow(p *common.Player) schema.PlayerState {
@@ -481,10 +501,8 @@ func StateRow(p *common.Player) schema.PlayerState {
 	}
 	if w := p.ActiveWeapon(); w != nil {
 		r.ActiveWeapon = ptr(w.Type.String())
-		if w.Entity != nil {
-			if _, ok := w.Entity.PropertyValue("m_iClip1"); ok {
-				r.AmmoClip = ptr(int32(w.AmmoInMagazine()))
-			}
+		if w.Class() != common.EqClassGrenade && w.Class() != common.EqClassEquipment {
+			r.AmmoClip = magazineAmmo(w.Entity)
 		}
 	}
 	return r

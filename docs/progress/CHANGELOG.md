@@ -2,6 +2,103 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-07 — Steam Offline Mode context clarified
+
+After confirming normal preferences, the user reported that Steam is in Offline
+Mode. Scoped the settings-verification milestone accordingly: local settings,
+native path/interface guards and cleanup passed; online Steam Cloud and behavior
+after reconnecting are not yet tested. Added the context as a separate trial-012
+record, preserving the original capture/verification manifests. Added online
+verification to remaining work. No game settings, Steam mode or renderer code
+changed for this clarification.
+
+## 2026-09-07 — Live settings protection passed and game staging cleaned up
+
+After the user restored normal preferences, protected trial 011 captured 64
+frames and passed native startup/path/Cloud checks. Its 39 selected personal
+files remained unchanged. A shutdown access violation was traced through the
+matching dump/MAP to the optional `dem_render_info` command destructor, which
+unregistered after the engine command registry had been destroyed. Disabled
+that unused Windows-only registration while retaining the pinned Cloud guard.
+
+Trial 012 then exited normally and encoded a **64-frame, two-second,
+1280x720/32 FPS MP4**. All 64 original images match native readbacks. Independent
+read-only checks confirmed that all 39 personal files matched their pre-render
+bytes, sizes, timestamps and read-only flags, and the baseline matched trial 011.
+Only two files in the private clone changed. Backups verified, locks released,
+gameinfo restored and the staged plugin moved back into the workspace.
+
+The successful output and evidence live in `data/rendered/windows-settings-012/`.
+The tested DLL SHA256 is
+`0f9c1f0c4c4a6275960d48d2df8a9b1b5684040a490f9cd9ad484989d1c3823c`.
+Trial 011 remains marked failed and its DLL/debug files and diagnosis are retained.
+
+Individually audited and archived all **17 historical** inactive plugin folders
+into each original run's `renderer-sandbox/`. No renderer staging folders remained
+in CS2; gameinfo retained its original hash. Exact mappings and owning-journal
+hashes are in `data/settings-audits/historical-staging-2026-09-07.json`.
+The user then confirmed that audio, video and HUD look correct when launching
+CS2 normally through Steam.
+The prior 226 Python tests remain the fixture checkpoint; the changed native
+adaptation built and passed the real repeat trial. Training timing remains unverified.
+
+## 2026-09-07 — Personal-settings isolation and recovery implemented
+
+Added bounded config snapshots, byte/mtime/read-only restoration, durable root
+locks, verified cloning and conflict-aware interrupted recovery. The worker
+clones preferences into a run-owned profile before launching, requires the new
+native policy marker and path/Cloud proof, restores selected files only after
+CS2 stops, and relocates its staged plugin into the workspace before encoding.
+Steam launch options and account Cloud preferences are not changed.
+
+The native guard builds successfully and uses exact engine/filesystem hashes.
+All **226 Python tests pass**, including 63 new settings/worker cases.
+Fixture checks exercise launch failures, timeouts, KeyboardInterrupt, live-process
+refusal, external edits, corrupt backups, partial recovery and malformed native
+proof. A real protected launch is pending the user's normal-settings baseline;
+this entry does not claim runtime isolation has passed.
+
+Correction to earlier wording: historical "game configuration restored" meant
+the original `gameinfo.gi` bytes, not a backup of audio/video/HUD preferences.
+The new protection preserves the settings present at each run's start. It cannot
+reconstruct unknown preferences from before earlier captures. Recovery and scope
+are documented in [WINDOWS_RENDERING.md](../WINDOWS_RENDERING.md).
+
+## 2026-09-07 — Multi-player validation and sample acceptance
+
+Implemented `validate-clip`, `accept-samples` and `summarize-campaign`. Reports
+recheck hashes, raw rows, frame evidence and current acceptance policy. Temporal
+samples retain exact history/target/predecessor IDs; rejected samples explain
+phase, pause, continuity, missing inputs, invalid fractions and evidence limits.
+Local POV/action failures affect crossing windows; timing/integrity gates remain strict.
+
+Native instrumentation now observes Steam identity through reciprocal observer
+handles, in-eye mode, camera/matrix state, pause, pawn state and weapon clocks.
+Trials 008–010 cover Ckanic, Nikodeon and ay0k in three competitive Dust2 rounds:
+**480 images, 960 commands, all pixel and exact first-person identity checks passing**.
+Firing, aim, movement, jump/landing and crouch observations are retained with scope.
+All launches exited normally and restored game configuration.
+
+Extractor 0.1.2 fixes the old pause prefix and off-by-one firearm ammo helper.
+Dust2 was fully re-extracted into `data/parsed/v2-state-fixed/`; commands, rounds
+and events stayed byte-identical. Context schema 2 records five pause flags,
+unambiguous shot clocks and audited warning provenance. Ambiguous or loss-bearing
+evidence cannot silently qualify a sample.
+
+The revalidated campaign has **480 candidates, 456 complete temporal windows,
+zero accepted samples**. Execution/observation timing remains unproven; the
+report also retains missing button messages, invalid fractions, camera effects
+and one crouch disagreement. These are explicit remaining blockers, not passing
+training labels. Current artifacts and limitations are in [STATUS.md](STATUS.md).
+
+Historical reports/captures remain untouched. Nuke/Cache state migration and the
+loader, splits, model and training loop remain future work.
+
+Final verification: **163 Python tests and all extractor/renderer Go suites
+passed**, native Release and all three Go executables built, and the original
+gameinfo SHA256 was restored. The campaign recomputed all three acceptance
+partitions before publishing its counts.
+
 ## 2026-09-07 — Unmasked run-006 pilot completed and tested
 
 Completed `data/rendered/windows-competitive-006/` and its real dataset under `data/datasets/dust2-competitive-006/`: **160 frames, 320 future commands, two commands per frame, zero empty frames, normalized inputs and `viewer/inspect.html`**. The v5 native HUD profile uses six seconds of UI settling and no encoder masks. Independently inspected raw frames 0, 50, 51 and 159 preserve money/health/ammo/crosshair/viewmodel and show no stale MATCH START notice, chat or private team-stat panels.

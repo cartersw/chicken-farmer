@@ -8,11 +8,12 @@ The Windows extractor and Python data tools work locally. **All three supplied d
 
 Replay video can use the [experimental native Windows worker](docs/WINDOWS_RENDERING.md) or a configured Linux worker. A demo contains game state and commands; obtaining pixels requires replaying it in CS2. Actual capture and timing acceptance results are tracked in [current status](docs/progress/STATUS.md).
 
-The native Windows pilot produces a competitive Dust2 clip at 1280x720/32 fps:
-**160 frames paired with 320 future commands**, with raw images, MP4 and an
-interactive inspector. Native capture hashes, fractional render times and an
-isolated firing transition have been verified. Outputs remain diagnostic while
-execution-clock/POV acceptance and input-quality filtering are completed.
+The Windows validation campaign covers three players and rounds at 1280x720/32 fps:
+**480 frames paired with 960 commands**, with raw images, MP4 and inspectors.
+Every frame passes native pixel matching and exact first-person identity checks.
+The new [validation](docs/VALIDATION.md) and [sample acceptance](docs/ACCEPTANCE.md)
+commands publish explicit evidence and rejection reasons. No samples are accepted
+yet: command execution and observation-phase timing remain unverified.
 
 ## Included
 
@@ -21,6 +22,7 @@ execution-clock/POV acceptance and input-quality filtering are completed.
 - SHA-256 demo identity, shared match identity, parser/schema versions, output checksums, structured progress logs, and quality validation.
 - Python angular normalization, alive player-round render jobs, measured frame interval alignment, and a local video/action debug viewer.
 - Separate phase auditing that excludes setup/knife rounds, native HUD cleanup, capture/readback instrumentation, and a combined `process-render` command.
+- Independent state/weapon-clock auditing, corrected CS2 pause/ammo extraction, per-window acceptance and multi-clip campaign summaries.
 - Pinned Reka renderer checkout/setup, a tested one-job adapter, and environment diagnostics.
 
 This milestone prepares and inspects data. Model training and live controls are later handoff milestones.
@@ -89,7 +91,7 @@ go -C tools/usercmd-extractor build -o ../../bin/cs2-extract.exe ./cmd/cs2-extra
 
 ```powershell
 go -C tools/usercmd-extractor test ./...
-.\.venv\Scripts\python.exe -m pytest tests tools/renderer/test_windows.py -q
+.\.venv\Scripts\python.exe -m pytest tests tools/renderer/test_windows.py tools/renderer/test_windows_settings.py -q
 ```
 
 The tests exercise protobuf/Parquet preservation, corrupt-demo publication prevention, quality checks, yaw wrap and reset boundaries, frame interval assignment, invalid timing/identity rejection, render interval splitting, and the viewer data path. Synthetic video-probe fixtures do not replace a CS2 render integration test.

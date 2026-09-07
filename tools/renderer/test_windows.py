@@ -33,6 +33,18 @@ def job_fixture(tmp_path):
             "start_demo_tick": 1279, "end_demo_tick": 2458, "fps": 32, "width": 640, "height": 360}
 
 
+def settings_fixture(tmp_path, game):
+    steam = tmp_path / "steam-client"
+    steam.mkdir()
+    (steam / "steam.exe").write_bytes(b"fixture only")
+    cfg = steam / "userdata/123/730/local/cfg"
+    cfg.mkdir(parents=True)
+    (cfg / "cs2_machine_convars.vcfg").write_bytes(b'"volume" "0.7"\r\n')
+    (steam / "userdata/123/730/remote").mkdir()
+    (game / "csgo/cfg").mkdir(exist_ok=True)
+    return ["--steam-dir", str(steam), "--steam-user-id", "123"]
+
+
 def test_gameinfo_roundtrip_and_crash_recovery(tmp_path, monkeypatch):
     monkeypatch.setattr(worker, "cs2_pids", lambda: [])
     game, out, original = game_fixture(tmp_path)
@@ -192,10 +204,10 @@ def test_capture_failure_restores_gameinfo_and_publishes_failed_manifest(tmp_pat
     source_job = job_fixture(tmp_path)
     job = worker.validate_job(source_job, max_ticks=128)
     plugin = tmp_path / "fixture-plugin.dll"
-    plugin.write_bytes(b"fixture, never loaded")
+    plugin.write_bytes(b"fixture, never loaded CHICKEN_SETTINGS_ISOLATION_V1")
     output = tmp_path / "failed-attempt"
     args = worker.argument_parser().parse_args(["--output", str(output), "--game-dir", str(game),
-                                                 "--plugin", str(plugin), "--execute"])
+                                                 "--plugin", str(plugin), "--execute", *settings_fixture(tmp_path, game)])
     monkeypatch.setattr(worker, "cs2_pids", lambda: [])
     monkeypatch.setattr(worker, "preflight", lambda *args: (Path("ffmpeg"), Path("ffprobe"), {"PatchVersion": "fixture"}))
     if failure_point == "launch":
@@ -226,10 +238,11 @@ def test_changed_plugin_is_rejected_before_activating_gameinfo(tmp_path, monkeyp
     original = job_fixture(tmp_path)
     job = worker.validate_job(original)
     plugin = tmp_path / "fixture-plugin.dll"
-    plugin.write_bytes(b"original build")
+    plugin.write_bytes(b"original build CHICKEN_SETTINGS_ISOLATION_V1")
     output = tmp_path / "changed-build"
     args = worker.argument_parser().parse_args(["--output", str(output), "--game-dir", str(game),
-                                                "--plugin", str(plugin), "--execute"])
+                                                "--plugin", str(plugin), "--execute", *settings_fixture(tmp_path, game)])
+    monkeypatch.setattr(worker, "cs2_pids", lambda: [])
     monkeypatch.setattr(worker, "preflight", lambda *args: (Path("ffmpeg"), Path("ffprobe"), {}))
     copy = worker.shutil.copyfile
     def changed_copy(source, target, *args, **kwargs):

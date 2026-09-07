@@ -1,5 +1,16 @@
 # Experimental Windows replay plugin
 
+The current build requires the runner's cloned settings profile and native
+isolation arguments described in [SETTINGS_ISOLATION.md](SETTINGS_ISOLATION.md).
+The guarded build passed `windows-settings-012`: 64 frames, encoded MP4, clean
+CS2 exit, verified local paths, and one denied engine config Cloud acquisition.
+All 39 selected settings files matched their baseline without restore writes.
+Steam Offline Mode is user-reported session context, not independently recorded
+by the trial; online Cloud synchronization and reconnection remain untested.
+The native interface block was observed directly, independently of that report.
+The previous shutdown fault and bounded fix remain documented in the linked
+notes. Older DLLs lack these guards and fail isolation preflight.
+
 Opt-in native movie and pixel-readback evidence is described in
 [CAPTURE_HOOK.md](CAPTURE_HOOK.md). It requires `-chicken-capture-log` with a new
 absolute output path and refuses unknown engine binaries. This evidence does not
@@ -7,8 +18,9 @@ automatically make a capture ready for training.
 
 This builds an x64 Windows adaptation of the pinned Reka plugin. It is a
 development capture component: successful compilation does not verify its
-hardcoded game interfaces against the installed CS2 version, and the plugin
-does not yet produce measured per-frame replay timestamps.
+hardcoded game interfaces against the installed CS2 version. The plugin records
+per-frame native capture evidence; command-execution alignment remains a
+separate acceptance requirement.
 
 Local checkpoint (2026-09-07): pilot 004 on Windows CS2 1.41.7.8 captured
 64 frames at 1280x720/32 fps, encoded a two-second clip, and exited with code

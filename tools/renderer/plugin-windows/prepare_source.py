@@ -18,6 +18,10 @@ def adapt_source(source: str) -> str:
         source = source.replace(old, new, 1)
 
     replace('#include <atomic>', '#include <atomic>\n#include <windows.h>\n#include <process.h>\n#include <filesystem>')
+    replace('#define CON_COMMAND_ENABLED 1',
+            '// No plugin-owned console commands: the optional dem_render_info static\n'
+            '// destructor would unregister after engine teardown in our pinned DLL.\n'
+            '// Existing engine commands/CVars and their unhide path remain available.')
     replace('return GetProcAddress((HMODULE)lib, name);',
             'return reinterpret_cast<void*>(GetProcAddress((HMODULE)lib, name));')
     replace('return LoadLibrary(path);', 'return LoadLibraryA(path);')
@@ -56,9 +60,11 @@ def adapt_source(source: str) -> str:
             '#include "hook_fallback.inc"\n\n'
             'bool Connect(IAppSystem* appSystem, CreateInterfaceFn factoryFn)')
     replace('void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)',
-            '#include "capture_trace.inc"\n\n'
+            '#include "capture_trace.inc"\n'
+            '#include "settings_isolation.inc"\n\n'
             'void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)')
     replace('    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).',
+            '    ChickenSettings::BeforeCommands();\n'
             '    ChickenCapture::Initialize();\n\n'
             '    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).')
     replace('                    engine->ExecuteClientCmd(0, action.cmd.c_str(), true);',
@@ -70,6 +76,7 @@ def adapt_source(source: str) -> str:
             '    return result;\n}\n\n\nvoid Shutdown()')
     replace('    isQuitting = true;\n\n    if (serverConfigShutdown != NULL)',
             '    isQuitting = true;\n'
+            '    ChickenSettings::ObserveShutdown();\n'
             '    StopClientHookFallback();\n\n'
             '    if (serverConfigShutdown != NULL)')
     replace('void Shutdown()\n{', 'void Shutdown(IAppSystem* appSystem)\n{')
@@ -117,6 +124,7 @@ def adapt_source(source: str) -> str:
             '        }\n'
             '        DeleteLogFile();\n'
             '        AssertInsecureParameterIsPresent();\n'
+            '        ChickenSettings::InstallEarly();\n'
             '        LogToFile("Experimental Windows replay plugin loaded; game ABI is unverified");')
     replace('    void* original = serverCreateInterface(pName, pReturnCode);\n    auto vtable = *(void***)original;',
             '    if (pName == NULL) {\n'
@@ -241,6 +249,8 @@ def main() -> None:
     (args.output / "cdll_interfaces.h").write_text(header, encoding="utf-8", newline="\n")
     (args.output / "hook_fallback.inc").write_bytes(fallback)
     (args.output / "capture_trace.inc").write_bytes(Path(__file__).with_name("capture_trace.inc").read_bytes())
+    (args.output / "observation_trace.inc").write_bytes(Path(__file__).with_name("observation_trace.inc").read_bytes())
+    (args.output / "settings_isolation.inc").write_bytes(Path(__file__).with_name("settings_isolation.inc").read_bytes())
     (args.output / "icvar.h").write_text(icvar, encoding="utf-8", newline="\n")
     (args.output / "convar.cpp").write_bytes(convar_source)
 

@@ -37,10 +37,19 @@ the parser revision, schema version and provenance.
 | `demo_time_seconds` | `demo_tick / tick_rate` computed by the extractor; not a measured video presentation timestamp |
 | Round `start_tick`, `freeze_end_tick`, `end_tick` | Demo/replay tick clock |
 
-Keep these clocks separate. Raw commands are aligned on their recorded packet
-demo tick in this implementation. Command batching can make packet arrival differ
-from execution. Output remains `training_ready: false` pending visual timing
-validation; preserving these records does not establish execution-perfect labels.
+Keep these clocks separate. Diagnostic alignment uses observed fractional render
+time and a candidate execution-clock mapping; raw packet ticks remain preserved.
+Whole-command joins do not prove the phase of fractional events within a command.
+Output remains `training_ready: false` until validation and per-window acceptance
+establish the required timing evidence.
+
+## State extraction revision
+
+Extractor 0.1.2 retains schema 2 but fixes pause properties (`m_pGameRules.` and
+all five flags) and reads the recorded firearm `m_iClip1` without the pinned
+helper's subtraction. Non-magazine/unavailable counts remain null. Dust2's new
+state artifact is under `data/parsed/v2-state-fixed/`; earlier states remain
+historical. See [STATE_CONTEXT.md](STATE_CONTEXT.md) for the independent audit.
 
 ## `normalized_actions.parquet`
 
