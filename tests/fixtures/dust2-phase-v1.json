@@ -1,0 +1,470 @@
+{
+  "description": "Exact ESL Dust2 phase events through the first scored competitive round; chat omitted. Round ordinals are deliberately not classification evidence.",
+  "source_demo_sha256": "f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773",
+  "rounds": [
+    {
+      "demo_id": "f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773",
+      "round_id": 1,
+      "round_number": 1,
+      "map": "de_dust2",
+      "start_tick": 0,
+      "freeze_end_tick": 1279,
+      "end_tick": 2458,
+      "winner_team": 3,
+      "is_warmup": false,
+      "bomb_planted": false,
+      "bomb_site": null
+    },
+    {
+      "demo_id": "f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773",
+      "round_id": 2,
+      "round_number": 1,
+      "map": "de_dust2",
+      "start_tick": 2621,
+      "freeze_end_tick": 2748,
+      "end_tick": null,
+      "winner_team": null,
+      "is_warmup": true,
+      "bomb_planted": false,
+      "bomb_site": null
+    },
+    {
+      "demo_id": "f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773",
+      "round_id": 3,
+      "round_number": 1,
+      "map": "de_dust2",
+      "start_tick": 3211,
+      "freeze_end_tick": 4906,
+      "end_tick": 10459,
+      "winner_team": 3,
+      "is_warmup": false,
+      "bomb_planted": false,
+      "bomb_site": null
+    }
+  ],
+  "events": [
+    {
+      "demo_tick": 0,
+      "game_phase": 0,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "match_start",
+      "round_id": 0,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 0,
+      "detail": {},
+      "game_phase": 0,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "raw_begin_new_match",
+      "round_id": 0,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 0,
+      "detail": {
+        "OldGamePhase": 0,
+        "NewGamePhase": 1
+      },
+      "game_phase": 1,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "game_phase_changed",
+      "round_id": 0,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 0,
+      "detail": {
+        "OldIsWarmupPeriod": false,
+        "NewIsWarmupPeriod": false
+      },
+      "game_phase": 1,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "warmup_changed",
+      "round_id": 0,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 0,
+      "detail": {
+        "new": 0,
+        "old": 0
+      },
+      "game_phase": 1,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "score_updated",
+      "round_id": 0,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 0,
+      "detail": {
+        "new": 0,
+        "old": 0
+      },
+      "game_phase": 1,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "score_updated",
+      "round_id": 0,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 0,
+      "detail": {
+        "OldIsStarted": false,
+        "NewIsStarted": true
+      },
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "match_started_changed",
+      "round_id": 0,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 0,
+      "detail": {
+        "TimeLimit": 120,
+        "FragLimit": 0,
+        "Objective": "BOMB TARGET"
+      },
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "round_start",
+      "round_id": 1,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 1279,
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "freeze_end",
+      "round_id": 1,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 1279,
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "announcement_match_started",
+      "round_id": 1,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 2458,
+      "detail": {
+        "new": 1,
+        "old": 0
+      },
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "score_updated",
+      "round_id": 1,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 2458,
+      "detail": {
+        "message": "#SFUI_Notice_CTs_Win",
+        "reason": 8,
+        "winner": 3
+      },
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "round_end",
+      "round_id": 1,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 2621,
+      "detail": {},
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "raw_round_announce_warmup",
+      "round_id": 1,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 2621,
+      "detail": {
+        "OldIsWarmupPeriod": false,
+        "NewIsWarmupPeriod": true
+      },
+      "game_phase": 1,
+      "is_match_started": true,
+      "is_warmup": true,
+      "kind": "warmup_changed",
+      "round_id": 1,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 2621,
+      "detail": {
+        "OldGamePhase": 1,
+        "NewGamePhase": 2
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": true,
+      "kind": "game_phase_changed",
+      "round_id": 1,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 2621,
+      "detail": {
+        "new": 0,
+        "old": 1
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": true,
+      "kind": "score_updated",
+      "round_id": 1,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 2621,
+      "detail": {
+        "TimeLimit": 999,
+        "FragLimit": 0,
+        "Objective": "BOMB TARGET"
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": true,
+      "kind": "round_start",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 2748,
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": true,
+      "kind": "freeze_end",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 3136,
+      "detail": {
+        "OldIsWarmupPeriod": true,
+        "NewIsWarmupPeriod": false
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "warmup_changed",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 3146,
+      "detail": {
+        "OldIsStarted": true,
+        "NewIsStarted": false
+      },
+      "game_phase": 2,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "match_started_changed",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 3191,
+      "detail": {},
+      "game_phase": 2,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "raw_cs_pre_restart",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 3211,
+      "game_phase": 2,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "match_start",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 3211,
+      "detail": {},
+      "game_phase": 2,
+      "is_match_started": false,
+      "is_warmup": false,
+      "kind": "raw_begin_new_match",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 3211,
+      "detail": {
+        "OldIsStarted": false,
+        "NewIsStarted": true
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "match_started_changed",
+      "round_id": 2,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 3211,
+      "detail": {
+        "TimeLimit": 115,
+        "FragLimit": 0,
+        "Objective": "BOMB TARGET"
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "round_start",
+      "round_id": 3,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 4906,
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "freeze_end",
+      "round_id": 3,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 4906,
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "announcement_match_started",
+      "round_id": 3,
+      "score_ct": 0,
+      "score_t": 0,
+      "total_rounds_played": 0
+    },
+    {
+      "demo_tick": 10459,
+      "detail": {
+        "new": 1,
+        "old": 0
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "score_updated",
+      "round_id": 3,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 10459,
+      "detail": {
+        "message": "#SFUI_Notice_CTs_Win",
+        "reason": 8,
+        "winner": 3
+      },
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "round_end",
+      "round_id": 3,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 10887,
+      "detail": {},
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "raw_cs_pre_restart",
+      "round_id": 3,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    },
+    {
+      "demo_tick": 10907,
+      "game_phase": 2,
+      "is_match_started": true,
+      "is_warmup": false,
+      "kind": "round_end_official",
+      "round_id": 3,
+      "score_ct": 1,
+      "score_t": 0,
+      "total_rounds_played": 1
+    }
+  ]
+}

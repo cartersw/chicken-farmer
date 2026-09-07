@@ -2,9 +2,9 @@
 
 This folder tracks completed work, verification, blockers, and the remaining CS2 vision imitation-learning milestones.
 
-**Last updated: 2026-09-07. Current milestone: initial data tooling implemented and exercised on three real demos.**
+**Last updated: 2026-09-07. Current milestone: a real Windows replay produces inspectable frame/action data.**
 
-The project can extract and normalize player commands and prepare render jobs. It has retained **4,933,316 reconstructed commands** and **3,511,650 valid alive-player angular transitions**. There are **no captured CS2 replay frames, verified frame/action training samples, or trained models yet**. All three complete-demo quality reports currently fail for documented input issues.
+The project has retained **4,933,316 reconstructed commands** and now produces a competitive Dust2 pilot with **160 captured frames and 320 aligned future commands**. Native image hashes, render-time observations and a visible firing transition have been checked. All three supplied demos have setup-round filtering, and the Windows HUD profile is clean without image masks. Outputs remain diagnostic: broader clock/POV acceptance and input-quality filtering are still required before training. No model has been trained.
 
 | Document | Purpose |
 | --- | --- |
@@ -12,7 +12,7 @@ The project can extract and normalize player commands and prepare render jobs. I
 | [Next steps](NEXT_STEPS.md) | Ordered work items with dependencies and completion criteria |
 | [Completion history](CHANGELOG.md) | Dated record of delivered work, checks, and decisions |
 
-The [project handoff](../../CS2_Vision_Imitation_Learning_Project_Handoff.md) remains the specification. The [initial run report](../INITIAL_RUN.md), [data schema](../DATA_SCHEMA.md), [rendering guide](../RENDERING.md), and [alignment guide](../ALIGNMENT.md) contain supporting details. [The repository README](../../README.md) has setup and command examples.
+The [project handoff](../../CS2_Vision_Imitation_Learning_Project_Handoff.md) remains the specification. Use the [Windows workflow](../WINDOWS_RENDERING.md), [phase filtering](../PHASES.md), [HUD profile](../HUD_PROFILE.md), and [alignment guide](../ALIGNMENT.md) for current commands and evidence. [The repository README](../../README.md) has setup examples; the [initial run report](../INITIAL_RUN.md) preserves earlier parser results.
 
 ## Keeping this up to date
 

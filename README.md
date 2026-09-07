@@ -8,9 +8,11 @@ The Windows extractor and Python data tools work locally. **All three supplied d
 
 Replay video can use the [experimental native Windows worker](docs/WINDOWS_RENDERING.md) or a configured Linux worker. A demo contains game state and commands; obtaining pixels requires replaying it in CS2. Actual capture and timing acceptance results are tracked in [current status](docs/progress/STATUS.md).
 
-The native Windows pilot now renders real two- and five-second Dust2 clips at
-1280x720/32 fps, with raw frames and MP4 output. Frame-to-input synchronization
-and training-quality acceptance remain unfinished.
+The native Windows pilot produces a competitive Dust2 clip at 1280x720/32 fps:
+**160 frames paired with 320 future commands**, with raw images, MP4 and an
+interactive inspector. Native capture hashes, fractional render times and an
+isolated firing transition have been verified. Outputs remain diagnostic while
+execution-clock/POV acceptance and input-quality filtering are completed.
 
 ## Included
 
@@ -18,6 +20,7 @@ and training-quality acceptance remain unfinished.
 - Streamed Zstandard Parquet: commands, available player-state snapshots, rounds, and gameplay events. Full reconstructed protobuf bytes preserve fields beyond the flattened schema.
 - SHA-256 demo identity, shared match identity, parser/schema versions, output checksums, structured progress logs, and quality validation.
 - Python angular normalization, alive player-round render jobs, measured frame interval alignment, and a local video/action debug viewer.
+- Separate phase auditing that excludes setup/knife rounds, native HUD cleanup, capture/readback instrumentation, and a combined `process-render` command.
 - Pinned Reka renderer checkout/setup, a tested one-job adapter, and environment diagnostics.
 
 This milestone prepares and inspects data. Model training and live controls are later handoff milestones.
@@ -46,10 +49,10 @@ Validate or inspect one result:
 $parsed = 'data/parsed/v2-audited/f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773'
 .\bin\cs2-extract.exe validate --parsed $parsed
 .\.venv\Scripts\cs2-data.exe normalize --parsed $parsed --out 'data/normalized/new-run/<demo SHA256>'
-.\.venv\Scripts\cs2-data.exe render-jobs --parsed $parsed --out 'data/jobs/first.json' --limit 1 --width 640 --height 360
+.\.venv\Scripts\cs2-data.exe render-jobs --parsed $parsed --phase-manifest data/phases/dust2-phase-audit.json --out 'data/jobs/first.json' --limit 1 --width 640 --height 360
 ```
 
-`first.json` contains one job object. To request all eligible intervals, omit `--limit 1` and use a `.jsonl` filename. These jobs exclude warmup, freeze time, dead intervals, and known pauses; unobserved pause state is explicitly flagged.
+`first.json` contains one job object. To request all eligible intervals, omit `--limit 1` and use a `.jsonl` filename. Jobs require competitive phase evidence and exclude warmup, freeze time, dead intervals, and known pauses; unobserved pause state is explicitly flagged. The local phase sidecars already exist. See [PHASES.md](docs/PHASES.md) to create them for new demos.
 
 Prepare/check the Reka integration:
 
@@ -59,7 +62,7 @@ python tools/renderer/setup.py --go .tools/go/bin/go.exe --build
 tools/renderer/build/dem-render.exe job --spec data/jobs/first.json --output data/rendered/first
 ```
 
-The last command is a Go-adapter dry run. Follow [WINDOWS_RENDERING.md](docs/WINDOWS_RENDERING.md) for the native Windows pilot or [RENDERING.md](docs/RENDERING.md) for Linux execution and remaining capture instrumentation. The installed Windows game is newer than the pinned plugin's target build, so the native trial requires an explicit experimental version override.
+The last command is a Go-adapter dry run. Follow [WINDOWS_RENDERING.md](docs/WINDOWS_RENDERING.md) for native capture and the combined `process-render` workflow, or [RENDERING.md](docs/RENDERING.md) for Linux execution. The installed Windows game is newer than the original plugin target, so the native trial requires an experimental version override; capture hooks also verify the exact installed engine binary.
 
 Once a real clip has verified POV, measured capture boundaries, and recorded video PTS:
 
@@ -68,7 +71,7 @@ Once a real clip has verified POV, measured capture boundaries, and recorded vid
 .\.venv\Scripts\cs2-data.exe viewer --aligned data/aligned/v1/clip --out data/viewer/clip.html
 ```
 
-Open the generated HTML and select its local MP4. Unverified renderer outputs cannot pass the alignment gate. Even measured packet-time alignment needs execution-clock and visual checks before it becomes training-ready; see [ALIGNMENT.md](docs/ALIGNMENT.md).
+Open the generated HTML and select its local MP4. Strict alignment requires measured timing and verified POV. The separate `process-render` workflow explicitly produces diagnostic native captures with their evidence and assumptions retained; see [ALIGNMENT.md](docs/ALIGNMENT.md).
 
 ## Fresh environment
 
@@ -86,7 +89,7 @@ go -C tools/usercmd-extractor build -o ../../bin/cs2-extract.exe ./cmd/cs2-extra
 
 ```powershell
 go -C tools/usercmd-extractor test ./...
-.\.venv\Scripts\python.exe -m pytest tests -q
+.\.venv\Scripts\python.exe -m pytest tests tools/renderer/test_windows.py -q
 ```
 
 The tests exercise protobuf/Parquet preservation, corrupt-demo publication prevention, quality checks, yaw wrap and reset boundaries, frame interval assignment, invalid timing/identity rejection, render interval splitting, and the viewer data path. Synthetic video-probe fixtures do not replace a CS2 render integration test.

@@ -5,13 +5,16 @@ Use the native Steam/CS2 installation with the experimental worker in
 The first target is a short, inspectable Dust2 player POV clip; producing video
 does not establish that frames are aligned with command execution.
 
-**Local result:** native capture succeeded repeatedly on CS2 1.41.7.8. Two-second
-pilots produced 64 frames; five-second pilots produced 160 frames, all at
-1280x720/32 fps. The latest local clip is
-`data/rendered/windows-pilot-007/65d673da8b15e089b40700b9.mp4`, with raw images in
-its `frames/` subdirectory. A live-window comparison confirmed qualitative color
-and orientation. Exact input synchronization and visual-profile acceptance are
-still pending; see [status](progress/STATUS.md).
+**Local result:** native capture succeeds on CS2 1.41.7.8 at 1280x720/32 fps.
+The competitive pilot now uses Ckanic's first scored Dust2 round, including a
+Glock shot and aim turn. The planner excludes the earlier knife/setup phase.
+Native HUD controls remove spectator statistics and chat while preserving player
+signals. Capture instrumentation records actual movie counters, pixel hashes and
+render clocks. The latest output is
+`data/rendered/windows-competitive-006/dd3ea5022ae36523398b97ca.mp4`;
+`data/datasets/dust2-competitive-006/` contains 160 frame intervals, 320 commands,
+normalized aim targets and `viewer/inspect.html`. See
+[current evidence and limits](progress/STATUS.md).
 
 ## Local prerequisites
 
@@ -63,12 +66,18 @@ short-capture path on this build, not compatibility with future CS2 updates.
 
 ## Short pilot
 
-Keep Steam running and close CS2 before starting. Use the covered job:
-`data/jobs/dust2-audited-first.json` (slot 3, round 1, ticks `[1279,2458)`).
-The older `dust2-first.json` does not have command coverage and should not be used.
+Keep Steam running and close CS2 before starting. Use the covered competitive job:
+`data/jobs/dust2-competitive-shot-001.json` (Ckanic, slot 9, canonical round 3,
+ticks `[6000,6320)`). It has 320 recorded commands and one Glock shot at tick 6102.
+The earlier `dust2-audited-first.json` is a knife/setup diagnostic, and
+`dust2-first.json` also lacks command coverage. Neither is a competitive sample.
+
+New jobs require a hash-bound match-phase sidecar by default. See
+[phase extraction and job generation](PHASES.md). An explicit
+`--allow-unverified-phase` allows setup/unknown jobs for diagnosis only.
 
 ```powershell
-.\.venv\Scripts\python.exe tools/renderer/windows.py --spec data/jobs/dust2-audited-first.json --output data/rendered/windows-pilot --allow-version-mismatch
+.\.venv\Scripts\python.exe tools/renderer/windows.py --spec data/jobs/dust2-competitive-shot-001.json --output data/rendered/windows-pilot --allow-version-mismatch
 ```
 
 This is a dry run. Review the selected interval and launch command. Add
@@ -112,10 +121,29 @@ PTS and logs. Check the requested player, HUD/viewmodel, resolution, colors and
 interval visually. Raw TGA decoding uses FFmpeg's image decoder, so Windows TGA
 channel order and image origin are handled without guessing raw pixel layout.
 
-Outputs remain `training_ready=false`, `pov_verified=false` and timing-unverified.
-Video PTS, scheduled ticks and file timestamps do not prove the replay time of
-each rendered image. Next, instrument capture boundaries and calibrate the
-command execution clock, then exercise [alignment and the viewer](ALIGNMENT.md).
+Raw TGAs remain unchanged. `capture_frame_files.json` records each original
+native filename, archived filename and SHA256. The capture ledger adds movie
+counters and pixel-readback evidence. The encoded visual profile is recorded in
+the render manifest; see [HUD cleanup](HUD_PROFILE.md).
+
+Process a completed instrumented run into a diagnostic frame/action dataset:
+
+```powershell
+$env:PATH = (Resolve-Path '.tools/ffmpeg/ffmpeg-9.0.1-essentials_build/bin').Path + ';' + $env:PATH
+.\.venv\Scripts\python.exe -m cs2_data process-render --parsed data/parsed/v2-audited/f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773 --render-dir data/rendered/windows-pilot --out data/datasets/dust2-pilot
+```
+
+This reconciles actual movie observations with retained images and decoded PTS,
+fits a scoped command-clock calibration, joins future command intervals, and
+writes `viewer/inspect.html`. Open the viewer and select the local MP4 it names.
+Use a fresh output directory. Missing/changed frames, missing endpoints and
+inconsistent clocks fail; earlier uninstrumented pilots cannot be upgraded by
+guessing timestamps. Individual stage commands are documented in
+[ALIGNMENT.md](ALIGNMENT.md).
+
+Outputs remain `training_ready=false`. Measured image identity does not alone
+prove the command/render clock epoch, fractional action timing or every player's
+POV. The real inspector makes those assumptions visible for review.
 
 The latest actual build/run outcome is recorded in
 [the progress tracker](progress/STATUS.md). A dry run or successful plugin build

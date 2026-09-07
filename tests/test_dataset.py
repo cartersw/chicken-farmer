@@ -211,13 +211,14 @@ def test_jobs_resolve_renderer_identity_and_stable_clip_id(tmp_path):
     demo.write_bytes(b"synthetic fixture")
     refresh_manifest(parsed, sha256=hashlib.sha256(demo.read_bytes()).hexdigest())
     out = tmp_path / "jobs.jsonl"
-    report = render_jobs(parsed, out, demo=demo, min_ticks=1)
+    report = render_jobs(parsed, out, demo=demo, min_ticks=1, allow_unverified_phase=True)
     job = json.loads(out.read_text())
     assert report["job_count"] == 1
     assert job["spectator_user_id"] == 7
     assert job["steam_id"] == "76561198000000001"
     assert job["end_demo_tick"] == 102
     assert job["clip_id"].isalnum()
+    assert job["phase_evidence"]["phase_verified"] is False
 
 
 @pytest.mark.parametrize("changes", [{"parse_status": "failed"}, {"partial": True}, {"parser_schema_version": "99"}])

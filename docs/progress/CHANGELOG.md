@@ -2,6 +2,40 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-07 — Unmasked run-006 pilot completed and tested
+
+Completed `data/rendered/windows-competitive-006/` and its real dataset under `data/datasets/dust2-competitive-006/`: **160 frames, 320 future commands, two commands per frame, zero empty frames, normalized inputs and `viewer/inspect.html`**. The v5 native HUD profile uses six seconds of UI settling and no encoder masks. Independently inspected raw frames 0, 50, 51 and 159 preserve money/health/ammo/crosshair/viewmodel and show no stale MATCH START notice, chat or private team-stat panels.
+
+The isolated-shot check is concrete: frame 50 still shows 20 Glock rounds and its future commands include the attack at demo tick 6102; frame 51 shows a muzzle flash and 19 rounds. Native readback hashes match all 160 archived images. Actual `EventClientOutput_t.m_flRenderTime` values and a native endpoint define the real timing intervals, using future `(start,end]` targets.
+
+Added native replay-epoch evidence: `IDemoFile.GetDemoStartTick=-5546`. This is deliberately preserved separately from the parser's 10703 execution-versus-packet tick difference. The working capture/alignment/viewer pilot retains `training_ready=false` while broader epoch/POV/subtick acceptance is completed; one invalid subtick observation at demo tick 6007 remains preserved. Callback instrumentation and real alignment are implemented and tested, rather than left as an unimplemented milestone.
+
+Final video SHA256: `9d5f1ed08258fc97a101d733cd8500a3e79b292ceb4fdf576aca4c5ada698046`. Final DLL SHA256: `4b52bd78efe574d837d155ff91921ca57d0b284bfd497457b3b01293737b18c1`. CS2 exited normally and restored the original gameinfo hash. **92 Python tests and all Go suites passed.** Final review added a staged-DLL hash check and a regression test: concurrent rebuilds now fail before game configuration changes, and run 006's retained DLL matches its manifest. Updated the current status, HUD evidence and remaining acceptance work; earlier masked and knife/setup runs remain unchanged as history.
+
+## 2026-09-07 — First real diagnostic dataset and native HUD settling
+
+Completed the real capture-to-dataset pipeline for `windows-competitive-005`: **160 frames, 320 future commands, zero empty frame intervals**, aligned Parquet files and a local viewer under `data/datasets/dust2-competitive-005/`. Native pixel hashes match all 160 archived images. Timing uses observed `EventClientOutput_t.m_flRenderTime` values and the recorded first movie callback after capture stops; future targets use `(start,end]` intervals.
+
+The current execution mapping still assumes the observed render-time clock shares the `server_tick_executed` epoch at the canonical 64 Hz tick rate. Its calibration remains `inferred_from_packet_arrival`, with no independent execution anchors and `execution_timing_verified=false`. Real output counts do not validate that assumption; the dataset remains `training_ready=false` pending epoch and visual synchronization acceptance.
+
+Resolved the stale MATCH START notice without modifying pixels: three existing two-second pause/resume actions after seeking provide six seconds for real-time UI settling. Changing `hidehud 192` to `hidehud 128` also retains money and weapon selection. Run-005 raw first/last previews show no announcement, extra team panels or chat while preserving the player's HUD. The new default `windows-pilot-v5-native-player-hud` removes all encoding-mask code.
+
+Run 005's already-written v4 MP4 still contains its historical announcement mask, and remains unchanged. A subsequent v5 repeat will validate unmasked encoding and newer native epoch instrumentation. Updated the HUD guide, current inventory and next steps to distinguish these artifact versions and completed versus unverified work.
+
+## 2026-09-07 — Competitive phase filtering, native HUD controls and pixel correspondence
+
+Added the lightweight `cs2-phases` Go command to record game-rule phase, match/warmup state, score progression and restart evidence without decoding UserCmd payloads again. The independent, source-hashed sidecars leave canonical Parquet data unchanged and refuse to overwrite existing evidence. Default render planning now requires live competitive phase evidence and a retained scored result; unknown/setup phases require an explicit diagnostic override. Optional paired tick bounds recompute command coverage after trimming.
+
+All three supplied demos contain **24 competitive and 2 setup rounds** under these checks. The initial knife round had `IsMatchStarted=true` and `IsWarmup=false`, but `GamePhase=Pregame`; using only warmup state had incorrectly admitted it. Ordinary `cs_pre_restart` events are not treated as aborted matches because they occur before normal rounds. Captured Dust2 event fixtures test this distinction and score rollback. **45 dataset/phase Python tests and 2 phase-extractor Go tests passed** at this checkpoint.
+
+Selected `dust2-competitive-shot-001.json`: Ckanic, slot 9, canonical round 3 / competitive round 1, ticks `[6000,6320)`, **320 commands covering 320 ticks**, and one isolated Glock-18 shot at tick 6102. The selection companion records input/event/aim/movement evidence and source hashes.
+
+Native replay trials `windows-competitive-003` and `004` produced **160 frames / 5 seconds at 1280x720 and 32 FPS**. Raw previews confirm that the native command bundle removes the ten-player equipment panels and chat while retaining alive counts, timer, limited radar, and own health/ammo/crosshair/viewmodel. MATCH START remained in run 003. A `hud_reloadscheme` trial did not suppress it before capture in run 004; its last preview no longer shows the notice. The reload command was removed, and the current encoding fallback is only `round-announcement-mask-v1`, a small rectangle whose occlusion is documented. Broader masks were removed; all raw TGA frames remain available.
+
+Run 004 adds native movie-submission and pixel-readback evidence. **All 160 archived TGA RGB hashes match native readback records, with 160 distinct images and no repeated pixel frames.** The run exited normally and restored gameinfo. This proves pixel correspondence but does not complete fractional replay-clock interpretation, final interval measurement, command execution calibration, or real synchronization review. Candidate clock calibration and diagnostic alignment code are being completed separately; outputs remain training-unverified.
+
+Added [phase usage/evidence](../PHASES.md) and [installed HUD asset hashes, commands and runtime trials](../HUD_PROFILE.md). Updated the current inventory and next steps; earlier knife-rendering attempts below remain historical diagnostics.
+
 ## 2026-09-07 — Native Windows replay capture delivered
 
 Implemented `tools/renderer/windows.py` and the x64 C++ adaptation under `plugin-windows/`. Installed local CMake/FFmpeg and the missing Visual Studio C++/Windows SDK components. The worker validates the demo/job, stages an isolated plugin, bounds the owned CS2 process and disk use, archives raw TGA frames, encodes H.264 and verifies decoded PTS/count/dimensions. It records a recovery journal and restores the original gameinfo bytes after both success and failure.

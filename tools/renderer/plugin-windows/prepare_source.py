@@ -55,6 +55,16 @@ def adapt_source(source: str) -> str:
     replace('bool Connect(IAppSystem* appSystem, CreateInterfaceFn factoryFn)',
             '#include "hook_fallback.inc"\n\n'
             'bool Connect(IAppSystem* appSystem, CreateInterfaceFn factoryFn)')
+    replace('void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)',
+            '#include "capture_trace.inc"\n\n'
+            'void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)')
+    replace('    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).',
+            '    ChickenCapture::Initialize();\n\n'
+            '    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).')
+    replace('                    engine->ExecuteClientCmd(0, action.cmd.c_str(), true);',
+            '                    ChickenCapture::ObserveCommand(action.cmd, "before");\n'
+            '                    engine->ExecuteClientCmd(0, action.cmd.c_str(), true);\n'
+            '                    ChickenCapture::ObserveCommand(action.cmd, "after");')
     replace('    return result;\n}\n\n\nvoid Shutdown()',
             '    StartClientHookFallback();\n'
             '    return result;\n}\n\n\nvoid Shutdown()')
@@ -230,6 +240,7 @@ def main() -> None:
     (args.output / "main.cpp").write_text(transformed, encoding="utf-8", newline="\n")
     (args.output / "cdll_interfaces.h").write_text(header, encoding="utf-8", newline="\n")
     (args.output / "hook_fallback.inc").write_bytes(fallback)
+    (args.output / "capture_trace.inc").write_bytes(Path(__file__).with_name("capture_trace.inc").read_bytes())
     (args.output / "icvar.h").write_text(icvar, encoding="utf-8", newline="\n")
     (args.output / "convar.cpp").write_bytes(convar_source)
 

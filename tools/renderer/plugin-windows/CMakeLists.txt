@@ -27,6 +27,7 @@ set(plugin_sources "${CMAKE_CURRENT_BINARY_DIR}/source")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_LIST_DIR}/prepare_source.py"
     "${CMAKE_CURRENT_LIST_DIR}/hook_fallback.inc"
+    "${CMAKE_CURRENT_LIST_DIR}/capture_trace.inc"
     "${CHICKEN_RENDERER_UPSTREAM}/cs2-server-plugin/main.cpp"
     "${CHICKEN_RENDERER_UPSTREAM}/cs2-server-plugin/cdll_interfaces.h"
     "${hl2sdk_SOURCE_DIR}/public/icvar.h"
@@ -61,6 +62,7 @@ target_link_options(server PRIVATE /DEBUG:FULL /MAP)
 target_link_libraries(server PRIVATE
     nlohmann_json::nlohmann_json
     "${hl2sdk_SOURCE_DIR}/lib/public/win64/tier0.lib"
+    bcrypt
 )
 set_target_properties(server PROPERTIES PREFIX "" OUTPUT_NAME "server")
 add_custom_command(TARGET server POST_BUILD

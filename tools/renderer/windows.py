@@ -23,7 +23,19 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 TARGET_PATCH = "1.41.6.5"
-PROFILE = "windows-pilot-v1-hud-viewmodel"
+PROFILE = "windows-pilot-v5-native-player-hud"
+HUD_COMMANDS = [
+    "cl_drawhud 1", "r_drawviewmodel 1", "cl_draw_only_deathnotices 0", "hud_scaling 1",
+    "spec_show_xray 0", "spec_cameraman_xray 0", "spec_autodirector 0",
+    "cl_radar_show_all_players_when_spectating 0",
+    "cl_radar_square_when_spectating 0", "cl_radar_square_always 0",
+    "cl_spec_show_bindings 0", "cl_spec_stats 0", "cl_drawhud_specvote 0",
+    "cl_autohelp 0", "gameinstructor_enable 0", "hidehud 128", "spec_cameraman_ui 0",
+    "cl_teamcounter_playercount_instead_of_avatars 1", "cl_show_equipment_value 0", "cl_showtextmsg 0",
+    "cl_hud_telemetry_frametime_show 0", "cl_hud_telemetry_net_misdelivery_show 0",
+    "cl_hud_telemetry_ping_show 0", "cl_hud_telemetry_serverrecvmargin_graph_show 0",
+    "r_show_build_info 0", "cl_trueview_show_status 0",
+]
 MAX_PILOT_TICKS = 320
 MOD_RE = re.compile(r"chicken-render-[0-9a-f]{32}\Z")
 
@@ -205,6 +217,8 @@ def validate_job(job: dict[str, Any], *, max_ticks: int = MAX_PILOT_TICKS) -> di
         raise ValueError("Pilot requires 32/64 fps and resolution between 320x180 and 1280x720")
     if job["width"] % 2 or job["height"] % 2:
         raise ValueError("Video dimensions must be even")
+    if job["width"] * 9 != job["height"] * 16:
+        raise ValueError("The inspected native HUD profile requires a 16:9 image")
     if not 4 <= max_ticks <= MAX_PILOT_TICKS:
         raise ValueError(f"This pilot worker supports --max-ticks between 4 and {MAX_PILOT_TICKS}")
     demo = Path(job.get("demo_path", "")).resolve()
@@ -217,10 +231,15 @@ def validate_job(job: dict[str, Any], *, max_ticks: int = MAX_PILOT_TICKS) -> di
         raise ValueError("Source demo SHA-256 does not match the job")
     effective = {**job, "demo_path": str(demo), "training_ready": False}
     effective["end_demo_tick"] = min(end, start + max_ticks)
+    # Profile changes must produce a new identity even without interval truncation.
+    effective["source_clip_id"] = job["clip_id"]
+    profile_digest = byte_hash(json.dumps({"profile": PROFILE, "hud_commands": HUD_COMMANDS,
+                                         "replay_settle_ticks": 128, "hud_settle_pause_seconds": 6},
+                                        sort_keys=True).encode())
+    effective["renderer_profile_sha256"] = profile_digest
+    key = f"{job['clip_id']}:{start}:{effective['end_demo_tick']}:{profile_digest}"
+    effective["clip_id"] = hashlib.sha256(key.encode()).hexdigest()[:24]
     if effective["end_demo_tick"] != end:
-        effective["source_clip_id"] = job["clip_id"]
-        key = f"{job['clip_id']}:{start}:{effective['end_demo_tick']}:{PROFILE}"
-        effective["clip_id"] = hashlib.sha256(key.encode()).hexdigest()[:24]
         effective["source_job_command_coverage"] = effective.pop("command_coverage", None)
         effective["source_job_interval"] = [start, end]
     effective["renderer_profile"] = PROFILE
@@ -239,17 +258,23 @@ def make_sequence(job: dict[str, Any], warmup_seconds: float) -> list[dict[str, 
             {"cmd": "quit", "tick": warmup_tick + 1000},
         ]})
     setup = ["sv_cheats 1", "demo_timescale 1", "demo_ui_mode 0", "volume 0",
-             "cl_hud_telemetry_frametime_show 0", "cl_hud_telemetry_net_misdelivery_show 0",
-             "cl_hud_telemetry_ping_show 0", "cl_hud_telemetry_serverrecvmargin_graph_show 0",
-             "r_show_build_info 0", "cl_draw_only_deathnotices 0", "spec_show_xray 0",
-             "cl_drawhud 1", "r_drawviewmodel 1", "cl_demo_predict 0", "cl_trueview_show_status 0",
-             f"host_framerate {job['fps']}"]
+             *HUD_COMMANDS, "cl_demo_predict 0", f"host_framerate {job['fps']}"]
     actions = [{"cmd": command, "tick": first} for command in setup]
+    # Let the observer HUD and camera settle before saving pixels. Near the start
+    # of a demo, shorten pre-roll while keeping all seek/setup commands after64.
+    settle = min(128, start - 71)
     actions += [
         {"cmd": "pause_playback", "tick": first},
-        {"cmd": f"demo_gototick {start - 6}", "tick": first},
-        {"cmd": "spec_mode 1", "tick": start - 4},
-        {"cmd": f"spec_player {job['spectator_user_id'] + 1}", "tick": start - 2},
+        {"cmd": f"demo_gototick {start - settle - 6}", "tick": first},
+        {"cmd": "spec_mode 1", "tick": start - settle - 4},
+        {"cmd": f"spec_player {job['spectator_user_id'] + 1}", "tick": start - settle - 2},
+    ]
+    # Replay seeking can leave a realtime HUD announcement active even after its
+    # demo tick has passed. These existing two-second pause/resume actions allow
+    # realtime UI timers to settle before capture without creating training frames.
+    if settle >= 128:
+        actions += [{"cmd": "pause_playback", "tick": start - delta} for delta in (96, 64, 32)]
+    actions += [
         {"cmd": f"startmovie {job['clip_id']}_", "tick": start},
         {"cmd": "endmovie", "tick": end},
         {"cmd": "quit", "tick": end + 64},
@@ -262,7 +287,8 @@ def launch_arguments(game: Path, job: dict[str, Any], demo: Path, log: Path,
                      allow_version_mismatch: bool) -> list[str]:
     arguments = [str(game / "bin/win64/cs2.exe"), "-steam", "-insecure", "-novid",
                  "-windowed", "-w", str(job["width"]), "-h", str(job["height"]),
-                 "-forcenovsync", "-chicken-render-log", str(log)]
+                 "-forcenovsync", "-chicken-render-log", str(log),
+                 "-chicken-capture-log", str(log.parent / "capture_ledger.jsonl")]
     if allow_version_mismatch:
         arguments += ["+demo_allow_game_mismatch", "1"]
     return arguments + ["+playdemo", str(demo)]
@@ -390,6 +416,7 @@ def archive_frames(files: list[Path], frame_dir: Path, job: dict[str, Any],
         raise ValueError("Capture frame numbers must be contiguous and begin at zero")
     header = inspect_tga(files[0], job["width"], job["height"])
     frame_dir.mkdir()
+    provenance = []
     # Every input was selected by this run's unique movie prefix and checked against
     # designated absolute capture roots. Only these files are moved; no tree deletion.
     for index, source in enumerate(files):
@@ -398,7 +425,14 @@ def archive_frames(files: list[Path], frame_dir: Path, job: dict[str, Any],
         destination = (frame_dir / filename).resolve()
         if not destination.is_relative_to(frame_dir.resolve()) or destination.exists():
             raise ValueError("Unsafe or occupied archive frame destination")
+        digest = sha256_file(source)
         shutil.move(str(source.resolve()), str(destination))
+        provenance.append({"capture_index": index, "source_name": source.name,
+                           "archived_name": filename, "sha256": digest})
+    atomic_json(frame_dir.parent / "capture_frame_files.json", {
+        "schema_version": 1, "capture_prefix": job["clip_id"],
+        "archived_prefix": destination_prefix or job["clip_id"], "frames": provenance,
+    })
     return header
 
 
@@ -455,6 +489,13 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         "schema_version": 1, **{key: job[key] for key in ("clip_id", "demo_id", "round_id", "steam_id", "player_slot", "fps", "width", "height")},
         "requested_start_demo_tick": job["start_demo_tick"], "requested_end_demo_tick": job["end_demo_tick"],
         "renderer_profile": PROFILE, "capture_method": "native-windows-cs2-startmovie-tga",
+        "renderer_profile_sha256": job["renderer_profile_sha256"],
+        "hud_profile": {"requested_commands": HUD_COMMANDS, "visual_acceptance_verified": False,
+                        "observer_settle_ticks": min(128, job["start_demo_tick"] - 71),
+                        "intent": "Player-visible HUD, no spectator x-ray or all-player radar",
+                        "hud_settle_pause_seconds": 6 if job["start_demo_tick"] >= 199 else 0,
+                        "encoded_mask_profile": "none", "encoded_masks": [],
+                        "raw_frames_masked": False},
         "timing_clock": "demo_tick", "timing_status": "unverified", "pov_verified": False,
         "interval_verified": False,
         "nominal_num_frames": math.ceil((job["end_demo_tick"] - job["start_demo_tick"]) * job["fps"] / 64),
@@ -472,6 +513,7 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         ffmpeg, ffprobe, info = preflight(game, plugin, args.ffmpeg, args.ffprobe, args.allow_version_mismatch)
         report["cs2_build"] = info
         report["plugin_sha256"] = sha256_file(plugin)
+        report["plugin_source_sha256"] = report["plugin_sha256"]
         with (out / "job.json").open("x", encoding="utf-8") as handle:
             json.dump(job, handle, indent=2)
         staged = out / "input.dem"
@@ -485,6 +527,9 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         plugin_dir = lease.mod_dir / "bin/win64"
         plugin_dir.mkdir(parents=True)
         shutil.copyfile(plugin, plugin_dir / "server.dll")
+        report["plugin_staged_sha256"] = sha256_file(plugin_dir / "server.dll")
+        if report["plugin_staged_sha256"] != report["plugin_source_sha256"]:
+            raise ValueError("Plugin changed during staging; refusing to launch with inconsistent DLL provenance")
         (lease.mod_dir / "movie").mkdir()
         if capture_files(movie_roots, capture_job["clip_id"]):
             raise ValueError("Capture prefix already exists; refusing to mix frames from separate attempts")
@@ -540,7 +585,13 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         report["captured_frame_count"] = len(files)
         report["captured_count_matches_nominal"] = len(files) == report["nominal_num_frames"]
         report["tga_header"] = archive_frames(files, out / "frames", capture_job, destination_prefix=job["clip_id"])
+        report["capture_frame_files"] = "capture_frame_files.json"
+        report["capture_frame_files_sha256"] = sha256_file(out / "capture_frame_files.json")
         report.update(encode_video(ffmpeg, ffprobe, out, job, len(files), args.encoder))
+        ledger = out / "capture_ledger.jsonl"
+        if ledger.is_file():
+            report["capture_ledger"] = ledger.name
+            report["capture_ledger_sha256"] = sha256_file(ledger)
         report["render_status"] = "video_ready_timing_unverified"
     except BaseException as exc:
         report["render_status"] = "failed"

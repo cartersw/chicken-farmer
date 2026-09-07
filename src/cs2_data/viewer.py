@@ -45,8 +45,8 @@ def viewer(aligned: Path, out: Path) -> dict[str, Any]:
                      (ds.field("steam_id") == pa.scalar(int(manifest["steam_id"]), type=pa.uint64())) &
                      (ds.field("player_slot") == manifest["player_slot"]) &
                      (ds.field("round_id") == manifest["round_id"]) &
-                     (ds.field("demo_tick") >= frames[0]["source_demo_tick_start"]) &
-                     (ds.field("demo_tick") < frames[-1]["source_demo_tick_end"]))
+                     (ds.field("demo_tick") >= int(frames[0].get("action_window_demo_tick_start", frames[0]["source_demo_tick_start"]))) &
+                     (ds.field("demo_tick") < frames[-1].get("action_window_demo_tick_end", frames[-1]["source_demo_tick_end"])))
         states = ds.dataset(Path(parsed) / "player_state.parquet", format="parquet").to_table(filter=predicate).to_pylist()
     payload = json_safe({"manifest": manifest, "frames": frames, "commands": commands, "states": states})
     encoded = base64.b64encode(json.dumps(payload, allow_nan=False).encode()).decode()
@@ -84,7 +84,8 @@ function show(index,seek=false){
  current=Math.max(0,Math.min(frames.length-1,index));const frame=frames[current];$('slider').value=current;
  $('stamp').textContent=`Frame ${current} · PTS ${frame.pts_seconds.toFixed(5)} s`;
  const commands=data.commands.slice(frame.clip_command_start,frame.clip_command_end);
- const state=data.states.findLast?data.states.findLast(s=>s.demo_tick<=frame.source_demo_tick_start):[...data.states].reverse().find(s=>s.demo_tick<=frame.source_demo_tick_start);
+ const observationTick=frame.action_window_demo_tick_start??frame.source_demo_tick_start;
+ const state=data.states.findLast?data.states.findLast(s=>s.demo_tick<=observationTick):[...data.states].reverse().find(s=>s.demo_tick<=observationTick);
  $('labels').textContent=JSON.stringify({frame,player_state:state??null,commands},null,2);
  if(seek&&video.readyState){video.pause();video.currentTime=frame.pts_seconds+0.000001;}
 }

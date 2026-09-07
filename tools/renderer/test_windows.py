@@ -87,11 +87,16 @@ def test_job_hash_pilot_schedule_and_launch_quoting(tmp_path):
     assert original["end_demo_tick"] == 2458
     assert worker.validate_job(original, max_ticks=128)["clip_id"] == job["clip_id"]
     actions = {entry["cmd"]: entry["tick"] for entry in worker.make_sequence(job, 0)[0]["actions"]}
-    assert actions["spec_player 4"] == 1277
+    assert actions["spec_player 4"] == 1149
     assert actions["startmovie " + job["clip_id"] + "_"] == 1279
     assert actions["endmovie"] == 1407
     assert actions["cl_drawhud 1"] == actions["r_drawviewmodel 1"] == 64
     assert actions["spec_show_xray 0"] == 64
+    assert actions["cl_radar_show_all_players_when_spectating 0"] == 64
+    assert actions["cl_spec_show_bindings 0"] == 64
+    short = {**original, "end_demo_tick": 1407}
+    assert worker.validate_job(short)["clip_id"] != short["clip_id"]
+    assert worker.validate_job(short)["source_clip_id"] == short["clip_id"]
     demo = tmp_path / "path with spaces/input.dem"
     args = worker.launch_arguments(tmp_path / "game", job, demo, tmp_path / "log file.log", True)
     assert args[args.index("+playdemo") + 1] == str(demo)
@@ -214,3 +219,29 @@ def test_capture_failure_restores_gameinfo_and_publishes_failed_manifest(tmp_pat
     assert manifest["gameinfo_restored"] is True
     assert manifest["training_ready"] is False
     assert manifest["interval_verified"] is False
+
+
+def test_changed_plugin_is_rejected_before_activating_gameinfo(tmp_path, monkeypatch):
+    game, _, original_gameinfo = game_fixture(tmp_path)
+    original = job_fixture(tmp_path)
+    job = worker.validate_job(original)
+    plugin = tmp_path / "fixture-plugin.dll"
+    plugin.write_bytes(b"original build")
+    output = tmp_path / "changed-build"
+    args = worker.argument_parser().parse_args(["--output", str(output), "--game-dir", str(game),
+                                                "--plugin", str(plugin), "--execute"])
+    monkeypatch.setattr(worker, "preflight", lambda *args: (Path("ffmpeg"), Path("ffprobe"), {}))
+    copy = worker.shutil.copyfile
+    def changed_copy(source, target, *args, **kwargs):
+        result = copy(source, target, *args, **kwargs)
+        if Path(target).name == "server.dll":
+            Path(target).write_bytes(b"rebuilt during staging")
+        return result
+    monkeypatch.setattr(worker.shutil, "copyfile", changed_copy)
+    with pytest.raises(RuntimeError, match="Plugin changed during staging"):
+        worker.run_capture(args, job, original)
+    assert (game / "csgo/gameinfo.gi").read_bytes() == original_gameinfo
+    assert not (game / "csgo/gameinfo.gi.chicken-render.lock").exists()
+    manifest = json.loads((output / (job["clip_id"] + ".render.json")).read_text())
+    assert manifest["gameinfo_restored"] == "not_modified"
+    assert manifest["plugin_source_sha256"] != manifest["plugin_staged_sha256"]
