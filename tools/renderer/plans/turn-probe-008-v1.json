@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "producer": "cs2-controlled-calibration-plan-v1",
+  "map": "de_dust2",
+  "fps": 32,
+  "width": 1280,
+  "height": 720,
+  "duration_seconds": 8,
+  "actions": [
+    {"id": "baseline_yaw", "at_ms": 500, "command": "setang 0 170 0"},
+    {"id": "left_turn_press", "at_ms": 2003, "command": "+turnleft"},
+    {"id": "left_turn_release", "at_ms": 2253, "command": "-turnleft"},
+    {"id": "right_turn_press", "at_ms": 3521, "command": "+turnright"},
+    {"id": "right_turn_release", "at_ms": 3896, "command": "-turnright"},
+    {"id": "step_yaw", "at_ms": 5507, "command": "setang 0 -90 0"}
+  ]
+}

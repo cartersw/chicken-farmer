@@ -2,14 +2,18 @@
 // input consumption time and physical-device timing are deliberately not claimed.
 #include <set>
 #include <regex>
+#include <map>
 
 namespace ChickenCalibration {
 constexpr const char* Marker = "CHICKEN_CONTROLLED_CALIBRATION_V1";
 constexpr const char* Producer = "cs2-controlled-calibration-plan-v1";
+constexpr const char* SyntheticProducer = "cs2-synthetic-input-calibration-plan-v1";
+constexpr const char* SyntheticMarker = "CHICKEN_SYNTHETIC_INPUT_BRIDGE_V1";
 constexpr const char* ClockBasis = "local_controller_tick_base_64hz";
 FILE* ledger = nullptr;
 json plan;
 bool attempted = false, enabled = false;
+bool synthetic = false;
 bool localMapRequested = false;
 json commandSupport = json::array();
 int stage = 0;
@@ -18,6 +22,12 @@ uint32_t pawnHandle = UINT32_MAX;
 BYTE* networkBase = nullptr;
 size_t nextAction = 0;
 int64_t frequency = 0, initializeQpc = 0, stageQpc = 0, lastNotice = 0;
+constexpr const char* SettlePolicy = "CHICKEN_CALIBRATION_SETTLE_V1";
+int64_t lastFrameStartQpc = 0, lastStartupSampleQpc = 0, sampledMaximumGap = 0;
+int64_t settleStartQpc = 0, settleLastQpc = 0, settleMaximumGap = 0;
+int32_t settleStartTick = 0, settleLastTick = 0;
+uint32_t settlePawn = UINT32_MAX;
+int settleSamples = 0, settleResets = 0;
 std::set<string> held;
 
 int64_t Qpc() { return ChickenCapture::Qpc(); }
@@ -47,13 +57,15 @@ const std::set<string> Controls = {"forward", "back", "left", "right", "attack",
     "duck", "jump", "sprint", "reload", "turnleft", "turnright"};
 
 void ValidatePlan() {
+    synthetic = ChickenCapture::HasArgument("-chicken-synthetic-input");
+    const char* schedule = synthetic ? "events" : "actions";
     if (!ExactKeys(plan, {"schema_version", "producer", "map", "fps", "width", "height",
-                          "duration_seconds", "actions", "movie_name", "demo_path"}) ||
-        !Integer(plan["schema_version"], 1, 1) || plan["producer"] != Producer ||
+                          "duration_seconds", schedule, "movie_name", "demo_path"}) ||
+        !Integer(plan["schema_version"], 1, 1) || plan["producer"] != (synthetic ? SyntheticProducer : Producer) ||
         plan["map"] != "de_dust2" || !Integer(plan["fps"], 32, 32) ||
         !Integer(plan["width"], 1280, 1280) || !Integer(plan["height"], 720, 720) ||
-        !Integer(plan["duration_seconds"], 2, 30) || !plan["actions"].is_array() ||
-        plan["actions"].empty() || plan["actions"].size() > 128 ||
+        !Integer(plan["duration_seconds"], 2, 30) || !plan[schedule].is_array() ||
+        plan[schedule].empty() || plan[schedule].size() > 128 ||
         !plan["movie_name"].is_string() || !plan["demo_path"].is_string())
         Fail("Unsupported bounded calibration plan");
     if (!std::regex_match(plan["movie_name"].get<string>(), std::regex("calibration-[0-9a-f]{32}")))
@@ -65,9 +77,51 @@ void ValidatePlan() {
         demo.filename() != "controlled.dem" || !ChickenSettings::SamePath(demo.parent_path(), planPath.parent_path()) ||
         std::filesystem::exists(demo)) Fail("Demo path must be fresh and owned by this calibration run");
     std::set<string> ids, down;
+    std::map<string, int> pressTimes;
+    std::map<int, int> boundaryCounts, boundaryMouse;
+    int mouseTotal = 0;
     int previous = -1;
     const int end = plan["duration_seconds"].get<int>() * 1000 - 500;
-    for (const auto& action : plan["actions"]) {
+    for (const auto& action : plan[schedule]) {
+        if (synthetic) {
+            const auto kind = action.value("kind", string());
+            const bool key = kind == "key", button = kind == "mouse_button", move = kind == "mouse_move";
+            if ((!key && !button && !move) ||
+                !(key ? ExactKeys(action, {"id", "at_ms", "kind", "key", "pressed"}) :
+                  button ? ExactKeys(action, {"id", "at_ms", "kind", "button", "pressed"}) :
+                           ExactKeys(action, {"id", "at_ms", "kind", "dx", "dy"})) ||
+                !action["id"].is_string() || !Integer(action["at_ms"], 500, end))
+                Fail("Invalid bounded synthetic event");
+            const auto id = action["id"].get<string>();
+            const int at = action["at_ms"].get<int>();
+            if (!std::regex_match(id, std::regex("[a-z][a-z0-9_-]{0,63}")) ||
+                !ids.insert(id).second || at < previous || ++boundaryCounts[at] > 8)
+                Fail("Invalid synthetic event identity/order/batch");
+            previous = at;
+            if (move) {
+                if (!Integer(action["dx"], -200, 200) || !Integer(action["dy"], -200, 200))
+                    Fail("Mouse movement must use bounded integer relative counts");
+                const int counts = abs(action["dx"].get<int>()) + abs(action["dy"].get<int>());
+                mouseTotal += counts; boundaryMouse[at] += counts;
+                if (counts < 1 || counts > 200 || boundaryMouse[at] > 200 || mouseTotal > 3200)
+                    Fail("Synthetic mouse count budget exceeded");
+            } else {
+                const auto field = key ? "key" : "button";
+                const std::set<string> allowed = key ? std::set<string>{"W", "A", "S", "D", "SPACE", "LCTRL", "LSHIFT", "R"} :
+                                                       std::set<string>{"left", "right"};
+                if (!action[field].is_string() || !allowed.count(action[field].get<string>()) || !action["pressed"].is_boolean())
+                    Fail("Unsupported synthetic key/button");
+                const auto control = kind + ":" + action[field].get<string>();
+                if (action["pressed"].get<bool>()) {
+                    if (!pressTimes.emplace(control, at).second) Fail("Repeated synthetic press");
+                } else {
+                    const auto found = pressTimes.find(control);
+                    if (found == pressTimes.end() || at - found->second > 2000) Fail("Unpaired or excessive synthetic hold");
+                    pressTimes.erase(found);
+                }
+            }
+            continue;
+        }
         if (!ExactKeys(action, {"id", "at_ms", "command"}) || !action["id"].is_string() ||
             !action["command"].is_string() || !Integer(action["at_ms"], 0, end)) Fail("Invalid control action");
         auto id = action["id"].get<string>(), command = action["command"].get<string>();
@@ -86,7 +140,7 @@ void ValidatePlan() {
                 Fail("Command is outside the calibration whitelist");
         }
     }
-    if (!down.empty()) Fail("Calibration must end with all controls released");
+    if (!down.empty() || !pressTimes.empty()) Fail("Calibration must end with all controls released");
 }
 
 json Local() {
@@ -102,6 +156,36 @@ bool Alive(const json& local) {
         (local.value("team", json(nullptr)) == 2 || local.value("team", json(nullptr)) == 3) &&
         local.contains("pawn_state") && local["pawn_state"]["health"].is_number_integer() &&
         local["pawn_state"]["health"].get<int>() > 0;
+}
+
+bool StartupSettled(const json& local, int64_t now, int64_t gap) {
+    const bool eligible = Alive(local) && local.value("first_person_camera_verified", false);
+    const auto pawn = eligible ? local["pawn_handle"].get<uint32_t>() : UINT32_MAX;
+    const auto tick = eligible ? local["controller_tick_base"].get<int32_t>() : -1;
+    if (!eligible || (settleSamples && (gap > frequency / 4 || pawn != settlePawn || tick < settleLastTick))) {
+        if (settleSamples) ++settleResets;
+        settleSamples = 0; settleStartQpc = 0; settleMaximumGap = 0;
+    }
+    if (eligible) {
+        if (!settleSamples) { settleStartQpc = now; settleStartTick = tick; settlePawn = pawn; }
+        else settleMaximumGap = (std::max)(settleMaximumGap, gap);
+        ++settleSamples; settleLastQpc = now; settleLastTick = tick;
+    }
+    // Retain every callback in the candidate window so an independent reader
+    // can check duration, identity continuity and actual wall-time gaps.
+    Write({{"event", "startup_settle_sample"}, {"qpc", now}, {"eligible", eligible},
+        {"controller_tick_base", tick}, {"pawn_handle", pawn}, {"callback_gap_qpc", gap}});
+    return eligible && settleSamples >= 32 && now - settleStartQpc >= 2 * frequency &&
+        tick - settleStartTick >= 64;
+}
+
+json StartupSettleEvidence() {
+    return {{"policy", SettlePolicy}, {"start_qpc", settleStartQpc}, {"end_qpc", settleLastQpc},
+        {"first_tick_base", settleStartTick}, {"last_tick_base", settleLastTick},
+        {"pawn_handle", settlePawn}, {"sample_count", settleSamples}, {"reset_count", settleResets},
+        {"max_callback_gap_qpc", settleMaximumGap}, {"required_seconds", 2},
+        {"maximum_gap_ms", 250}, {"minimum_samples", 32}, {"minimum_tick_advance", 64},
+        {"physical_input_timing_verified", false}};
 }
 
 json LocalConnection() {
@@ -207,6 +291,28 @@ void Setup() {
     for (const char* command : {"sv_cheats 1", "bot_kick", "mp_autoteambalance 0", "mp_limitteams 0",
         "mp_freezetime 0", "mp_ignore_round_win_conditions 1", "mp_respawn_on_death_t 1",
         "mp_respawn_on_death_ct 1", "mp_warmup_end", "jointeam 2", "firstperson", "mp_restartgame 1"}) Dispatch(command);
+    if (synthetic) {
+        // These are isolated setup bindings, never the probe actuator. Native
+        // code only observes the external SendInput schedule during capture.
+        json bindings = json::array();
+        for (const char* command : {"bind w +forward", "bind a +left", "bind s +back", "bind d +right",
+            "bind SPACE +jump", "bind CTRL +duck", "bind SHIFT +sprint", "bind r +reload",
+            "bind MOUSE1 +attack", "bind MOUSE2 +attack2", "sensitivity 1",
+            "m_yaw 0.022", "m_pitch 0.022", "sensitivity_y_scale 1"}) {
+            Dispatch(command); bindings.push_back(command);
+        }
+        json variables = json::object();
+        for (const char* name : {"sensitivity", "m_yaw", "m_pitch"}) {
+            ConVarRefAbstract value(name);
+            variables[name] = value.IsValidRef() ? json(value.GetString().String()) : json(nullptr);
+        }
+        for (const char* command : {"gameui_hide", "hideconsole"}) {
+            if (g_pCVar->FindConCommand(command, true).IsValidRef()) Dispatch(command);
+        }
+        Write({{"event", "synthetic_input_configuration"}, {"qpc", Qpc()}, {"binding_setup_commands", bindings},
+            {"observed_convars", variables}, {"binding_effect_verified", false},
+            {"input_consumption_verified", false}});
+    }
     Write({{"event", "local_setup_dispatched"}, {"qpc", Qpc()}});
 }
 void ConfigureFullUserCommands() {
@@ -265,10 +371,12 @@ void Initialize() {
     if (!ledger) Fail("Calibration ledger must be fresh and writable");
     LARGE_INTEGER ticks{}; QueryPerformanceFrequency(&ticks); frequency = ticks.QuadPart;
     initializeQpc = stageQpc = Qpc();
-    Write({{"event", "header"}, {"producer", Producer}, {"plugin_marker", Marker},
+    Write({{"event", "header"}, {"producer", synthetic ? SyntheticProducer : Producer}, {"plugin_marker", Marker},
+        {"synthetic_input_marker", synthetic ? json(SyntheticMarker) : json(nullptr)}, {"owned_process_id", GetCurrentProcessId()},
         {"qpc_frequency", frequency}, {"qpc", initializeQpc}, {"clock_basis", ClockBasis},
-        {"control_source", "dispatched_engine_controls_not_physical_device_latency"},
+        {"control_source", synthetic ? "external_windows_SendInput" : "dispatched_engine_controls_not_physical_device_latency"},
         {"physical_input_timestamps", false}, {"training_ready", false}, {"plan", plan},
+        {"startup_settle_policy", SettlePolicy},
         {"engine_sha256", ChickenCapture::ExpectedEngineSha()}, {"native_profile", ChickenCapture::ProfileName()}});
     enabled = true;
 }
@@ -277,6 +385,17 @@ void BeforeCommands() {
     try {
         Initialize();
         if (!enabled || isQuitting) return;
+        const int64_t callbackQpc = Qpc();
+        const int64_t callbackGap = lastFrameStartQpc ? callbackQpc - lastFrameStartQpc : 0;
+        lastFrameStartQpc = callbackQpc;
+        if (stage < 3) {
+            sampledMaximumGap = (std::max)(sampledMaximumGap, callbackGap);
+            if (callbackQpc - lastStartupSampleQpc >= frequency / 64) {
+                Write({{"event", "startup_cadence_sample"}, {"qpc", callbackQpc}, {"stage", stage},
+                    {"max_callback_gap_qpc_since_previous_sample", sampledMaximumGap}});
+                lastStartupSampleQpc = callbackQpc; sampledMaximumGap = 0;
+            }
+        }
         if (SecondsSince(initializeQpc) > 180) Fail("Calibration exceeded native wall timeout");
         if (!engineToClient || engineToClient->IsPlayingDemo()) Fail("Calibration cannot run in demo playback");
         if (stage == 0 && !localMapRequested && SecondsSince(initializeQpc) >= 8) {
@@ -313,14 +432,18 @@ void BeforeCommands() {
         if (stage == 0) { Setup(); stage = 1; stageQpc = Qpc(); return; }
         auto local = Local();
         if (stage == 1) {
-            if (SecondsSince(stageQpc) < 6 || !Alive(local) || !local.value("first_person_camera_verified", false)) {
+            // Initial map/restart work must finish before a continuous measured
+            // settling window begins. A single delayed callback cannot satisfy it.
+            if (SecondsSince(stageQpc) < 6 || !StartupSettled(local, callbackQpc, callbackGap)) {
                 if (SecondsSince(lastNotice) > 1) {
                     Write({{"event", "waiting_for_local_player"}, {"qpc", Qpc()}, {"local_player", local}});
                     lastNotice = Qpc();
                 }
                 return;
             }
-            for (const auto& action : plan["actions"]) {
+            Write({{"event", "startup_settle_complete"}, {"qpc", callbackQpc},
+                {"evidence", StartupSettleEvidence()}});
+            if (!synthetic) for (const auto& action : plan["actions"]) {
                 const auto command = action["command"].get<string>();
                 const auto name = command.substr(0, command.find(' '));
                 auto support = (command[0] == '+' || command[0] == '-') ? InputRegistration(command) :
@@ -344,19 +467,41 @@ void BeforeCommands() {
         }
         if (stage == 2) {
             if (SecondsSince(stageQpc) < 1) return;
-            if (!Alive(local)) Fail("Player not alive when starting original capture");
+            if (!Alive(local) || local["pawn_handle"] != settlePawn ||
+                local["controller_tick_base"].get<int32_t>() < settleLastTick)
+                Fail("Settled player identity or clock changed before original capture");
             Dispatch("host_framerate 32");
             Dispatch("startmovie " + plan["movie_name"].get<string>() + "_ tga");
             stage = 3; return;
         }
         if (stage == 3) {
-            if (!Alive(local)) Fail("Player not alive at calibration clock origin");
+            if (!Alive(local) || local["pawn_handle"] != settlePawn ||
+                local["controller_tick_base"].get<int32_t>() < settleLastTick)
+                Fail("Settled player identity or clock changed at calibration clock origin");
             startTick = previousTick = local["controller_tick_base"].get<int32_t>();
             pawnHandle = local["pawn_handle"].get<uint32_t>();
+            json readyConvars = json::object();
+            if (synthetic) {
+                // Setup commands are queued; only this later observation can
+                // establish the values in effect when input/capture starts.
+                for (const char* name : {"sensitivity", "m_yaw", "m_pitch", "sensitivity_y_scale"}) {
+                    ConVarRefAbstract value(name);
+                    readyConvars[name] = value.IsValidRef() ? json(value.GetString().String()) : json(nullptr);
+                }
+                if (!readyConvars["sensitivity"].is_string() ||
+                    std::stod(readyConvars["sensitivity"].get<string>()) != 1.0)
+                    Fail("Synthetic capture sensitivity did not reach its requested isolated value");
+            }
             Write({{"event", "calibration_ready"}, {"clock_basis", ClockBasis}, {"start_tick_base", startTick},
+                {"synthetic_input_bridge_verified", synthetic},
+                {"synthetic_input_ready_convars", readyConvars},
                 {"qpc", Qpc()}, {"local_player", local}, {"local_player_alive", true}, {"map", map},
+                {"startup_settle", StartupSettleEvidence()},
                 {"local_connection_verified", true}, {"local_connection", "loopback"},
                 {"connection_evidence", connection}, {"commands_verified", true}, {"registered_controls", commandSupport}});
+            if (synthetic) Write({{"event", "synthetic_bridge_ready"}, {"qpc", Qpc()},
+                {"owned_process_id", GetCurrentProcessId()}, {"local_connection_verified", true},
+                {"local_player", local}, {"start_tick_base", startTick}, {"marker", SyntheticMarker}});
             stage = 4;
         }
         if (stage == 4) {
@@ -365,8 +510,9 @@ void BeforeCommands() {
             if (tick < previousTick) Fail("Local scheduling clock moved backwards");
             previousTick = tick;
             const double elapsed = double(tick - startTick) * 15.625;
-            Write({{"event", "frame_sample"}, {"elapsed_ms", elapsed}, {"qpc", Qpc()}, {"local_player", local}});
-            while (nextAction < plan["actions"].size() && plan["actions"][nextAction]["at_ms"].get<int>() <= elapsed) {
+            Write({{"event", "frame_sample"}, {"elapsed_ms", elapsed}, {"qpc", Qpc()}, {"local_player", local},
+                {"owned_process_id", GetCurrentProcessId()}, {"local_connection_verified", true}});
+            while (!synthetic && nextAction < plan["actions"].size() && plan["actions"][nextAction]["at_ms"].get<int>() <= elapsed) {
                 const auto& action = plan["actions"][nextAction++];
                 const auto command = action["command"].get<string>();
                 const auto before = Local();
@@ -381,13 +527,14 @@ void BeforeCommands() {
                     {"local_player_before", before}, {"local_player_after", Local()}});
             }
             if (elapsed >= plan["duration_seconds"].get<int>() * 1000) {
-                if (!held.empty() || nextAction != plan["actions"].size()) Fail("Incomplete control sequence at end");
+                if (!held.empty() || (!synthetic && nextAction != plan["actions"].size())) Fail("Incomplete control sequence at end");
                 Dispatch("endmovie"); Dispatch("tv_stoprecord"); Dispatch("host_framerate 0");
                 Write({{"event", "recording_stop_dispatched"}, {"elapsed_ms", elapsed}, {"qpc", Qpc()}, {"local_player", local}});
                 stage = 5; stageQpc = Qpc();
             }
         } else if (stage == 5 && SecondsSince(stageQpc) >= 0.5) {
             Write({{"event", "calibration_complete"}, {"qpc", Qpc()}, {"actions_dispatched", nextAction},
+                {"external_events_planned", synthetic ? plan["events"].size() : 0},
                 {"training_ready", false}, {"timing_status", "unverified"}});
             stage = 6;
             Dispatch("quit");

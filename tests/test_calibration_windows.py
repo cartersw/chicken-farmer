@@ -122,7 +122,7 @@ def protected_run(tmp_path, monkeypatch):
     remote = write(steam / "userdata/100000001/730/remote/cs2_user.vcfg", b"remote original")
     autoexec = write(game / "csgo/cfg/autoexec.cfg", b"personal autoexec")
     originals = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (personal, remote, autoexec, gameinfo)}
-    plugin = write(tmp_path / "plugin.dll", b"CHICKEN_SETTINGS_ISOLATION_V1 " + worker.PLUGIN_MARKER)
+    plugin = write(tmp_path / "plugin.dll", b"CHICKEN_SETTINGS_ISOLATION_V1 " + worker.PLUGIN_MARKER + worker.SETTLE_POLICY.encode())
     args = worker.argument_parser().parse_args(["--output", str(out), "--game-dir", str(game),
         "--steam-dir", str(steam), "--steam-user-id", "100000001", "--plugin", str(plugin), "--execute"])
     process = FakeProcess()
@@ -255,6 +255,29 @@ def ledger(path, events):
     return path
 
 
+def settled_completion_events(plan):
+    events = completion_events(plan)
+    events[0]["startup_settle_policy"] = worker.SETTLE_POLICY
+    for event in events[1:]:
+        for key in ("qpc", "qpc_before", "qpc_after"):
+            if key in event:
+                event[key] += 9000000
+    samples = [{"schema_version": 1, "event": "startup_settle_sample", "qpc": 7000000 + i * 31250,
+                "callback_gap_qpc": 31250, "eligible": True, "controller_tick_base": 128 + 2 * i,
+                "pawn_handle": 456} for i in range(65)]
+    evidence = {"policy": worker.SETTLE_POLICY, "start_qpc": 7000000, "end_qpc": 9000000,
+                "first_tick_base": 128, "last_tick_base": 256, "pawn_handle": 456, "sample_count": 65,
+                "reset_count": 0, "max_callback_gap_qpc": 31250, "required_seconds": 2,
+                "maximum_gap_ms": 250, "minimum_samples": 32, "minimum_tick_advance": 64,
+                "physical_input_timing_verified": False}
+    events[1]["startup_settle"] = evidence.copy()
+    events[1]["start_tick_base"] = 300
+    events[1]["local_player"].update(controller_tick_base=300, pawn_handle=456)
+    return [events[0], {"schema_version": 1, "event": "local_setup_dispatched", "qpc": 500000},
+            *samples, {"schema_version": 1, "event": "startup_settle_complete", "qpc": 9000000,
+                       "evidence": evidence}, *events[1:]]
+
+
 def test_completed_schedule_remains_uncalibrated_and_not_training_ready(tmp_path):
     plan = worker.native_plan(worker.default_plan(), tmp_path, "c" * 32)
     path = ledger(tmp_path / "ledger.jsonl", completion_events(plan))
@@ -336,7 +359,7 @@ def test_completed_protected_run_archives_evidence_after_restoration(protected_r
         return run.process
 
     def wait(process, roots, plan, out, timeout):
-        ledger(out / "calibration_ledger.jsonl", completion_events(plan))
+        ledger(out / "calibration_ledger.jsonl", settled_completion_events(plan))
         write(out / "capture_ledger.jsonl", b'{"event":"fixture_capture"}\n')
         write(roots[0].parent / (plan["movie_name"] + ".dem"), b"PBDEMS2\x00fixture header")
         header = bytearray(18)

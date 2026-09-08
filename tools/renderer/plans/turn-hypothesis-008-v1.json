@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "profile": "observed-replay-eye-snapshot-interpolation-candidate-v1",
+  "derived_from_demo_sha256": "2543ea417181d95a09bec91910b46c4d3cc8af3eb56d7939bc9a23dad4932f8b",
+  "derived_from_comparison_sha256": "310611a4e011580710491e0aa73441ed515b88ca38ccda1e2ae9aa2a4566cd50",
+  "candidate": {
+    "name": "adjacent_observed_eye_snapshots_plus_one_tick",
+    "tick_rate": 64,
+    "snapshot_time_offset_ticks": 1,
+    "snapshot_time_field": "pawn_state.simulation_time * tick_rate",
+    "image_time_field": "movie_frame.render_time_seconds * tick_rate",
+    "angles": "previous and current observed pawn_state.eye_angles yaw; shortest circular arc",
+    "prediction": "previous_yaw + clamp((image_time - (previous_snapshot_time + 1)) / (current_snapshot_time - previous_snapshot_time), 0, 1) * wrapped(current_yaw - previous_yaw)",
+    "measured_target": "current rendered_camera.angles yaw",
+    "maximum_absolute_error_degrees": 0.001,
+    "changing_snapshot_threshold_degrees": 0.01,
+    "maximum_snapshot_gap_ticks": 4
+  },
+  "controls": ["same formula with snapshot_time_offset_ticks=0"],
+  "status": "008_derived_hypothesis_frozen_before_next_recording",
+  "held_out_validation": "Not yet performed; next recording must use this unchanged candidate.",
+  "training_ready": false,
+  "physical_input_timing_verified": false,
+  "clock_equivalence_verified": false,
+  "limits": [
+    "Adjacent observed snapshots do not prove the complete native interpolation buffer.",
+    "The +1 is a hypothesis about recorded eye-snapshot presentation, not a universal command or replay correction.",
+    "Same numeric controller tick does not imply same original/replay rendered camera phase.",
+    "Successful prediction does not prove physical input latency or exact input consumption."
+  ]
+}

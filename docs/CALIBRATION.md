@@ -1,5 +1,17 @@
 # Controlled Windows calibration
 
+The subsequent turning/button investigation is complete; see
+[its results and remaining limits](progress/TURN_AND_BUTTON_CALIBRATION.md).
+The [synthetic input worker](SYNTHETIC_INPUT.md) now sends Windows keyboard and
+relative-mouse events through the same protected lifecycle, with sent-event
+receipts and measured local mouse response. This document describes the earlier
+engine-console probes and replay comparison; its historical results remain
+separate from the synthetic input experiments.
+
+The next layer is the [32 Hz executor and scoped label builder](CONTROL_EXECUTION.md).
+It uses the measured synthetic response, fractional mouse-count carry and
+ready-time mouse-setting checks; the label masks retain unresolved event timing.
+
 The protected Python worker, native calibration mode and independent diagnostic analyzer are working. `control-008` completed the first fully captured ten-second control probe on the reviewed CS2 1.41.8.0 build. Precise input-consumption timing and original-versus-replay timing still require additional evidence; this controlled dataset does not grant training acceptance.
 
 ## Completed control-008 probe
@@ -34,6 +46,27 @@ The default plan contains ten seconds of forward movement, a counter-strafe, a s
 The worker passes `-chicken-calibration-plan <native-plan.json>` and `-chicken-calibration-ledger <calibration_ledger.jsonl>`, alongside existing protected renderer arguments. The JSON contains `schema_version: 1`, `producer: "cs2-controlled-calibration-plan-v1"`, `map`, `fps`, `width`, `height`, `duration_seconds`, and `actions` with `id`, `at_ms`, and `command`. The worker adds a unique `movie_name` and absolute `demo_path`.
 
 The native mode owns deterministic local setup, spawn/readiness checks, recording, action dispatch, release, stop and quit. It verifies an alive local first-person pawn and the actual local loopback connection before producing `calibration_ready`. It checks that each command exists at runtime, records `action_dispatch` events, and emits `calibration_complete` after stopping recording. The worker requires exactly one ordered header/readiness/stop/completion sequence and an exact match to every planned action. Missing records, unexpected actions, reversed clocks, changed plans and incomplete restoration keep the run failed.
+
+New recordings additionally require `CHICKEN_CALIBRATION_SETTLE_V1`. After the
+six-second setup wait, the worker requires at least two continuous seconds,
+32 callbacks and 64 advancing controller ticks. A gap over 250 ms or player/clock
+discontinuity resets the window. Native capture startup and the Python verifier
+require the same pawn and a nondecreasing tick through readiness. Raw
+`startup_settle_sample` records independently support the summary; a single
+delayed callback cannot satisfy this check. Older captures remain readable
+without being relabeled as having passed the newer settling policy.
+
+`startup_cadence_sample` records a maximum callback gap over each reporting
+interval before capture. These observations exposed roughly five-second map
+loading gaps and one-second configuration gaps in 009-011. Movie/readback gaps
+stayed below 36 ms in those recordings. Wall time remains separate from
+simulation progression, and these gaps do not certify display or input latency.
+
+Repeatable plans and frozen hypotheses are under
+[`tools/renderer/plans`](../tools/renderer/plans/README.md). The button
+confirmation intentionally probes cases that can disprove the initial rules;
+a failed diagnostic hypothesis does not mean settings restoration or command
+extraction failed.
 
 An alive local pawn can have a successfully read **null observer-services pointer**. Its `observer_mode` remains null; the worker does not invent mode zero. Readiness distinguishes this case through `observer_services_pointer_observed: true` and `observer_services_present: false`. An unreadable pointer is rejected. If the observer service exists, an explicitly observed mode zero is required. The initial stationary camera must have no view override (`UINT32_MAX`), be within two horizontal units of the own pawn, and be 24–76 units above its origin. The worker independently recomputes this camera check at readiness; movement and interpolation can change camera/pawn separation later, so this stationary bound is not applied to every moving frame.
 

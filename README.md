@@ -2,6 +2,12 @@
 
 Track completed work, current blockers, and the next milestones in [docs/progress](docs/progress/README.md).
 
+The latest [32 Hz executor and scoped label builder](docs/CONTROL_EXECUTION.md)
+connect angular actions to protected Windows keyboard/mouse input. A real
+combined-movement test and source-checked partial label export are documented in
+[the milestone report](docs/progress/CONTROL_EXECUTION_AND_LABELS.md), including
+the raw mouse-count discrepancy and remaining training-acceptance work.
+
 This repository starts the pipeline described in [the project handoff](CS2_Vision_Imitation_Learning_Project_Handoff.md): professional `.dem` recordings → reconstructed player commands and state → player POV replay video → auditable frame/action alignment.
 
 The Windows extractor and Python data tools work locally. **All three supplied demos have been processed, yielding 4,933,316 reconstructed commands. They are diagnostic outputs, not yet a training-ready dataset:** validation found missing initial command baselines and negative subtick timestamps. [The initial run report](docs/INITIAL_RUN.md) records the results and remaining work.
@@ -17,7 +23,9 @@ campaign remains diagnostic. The new [future-command profile](docs/SYNCHRONIZATI
 has **129 accepted training samples** from protected trial 016, each with eight
 images and a strictly future command/aim target. Complete packet bounds and
 source evidence are recomputed before acceptance. This is a small pilot; no
-model has been trained. Steam Cloud testing is deferred.
+model has been trained. Revalidating that historical pilot is currently blocked
+by its missing original Valve server binary after a game update; the new local
+control tests do not replace its competitive proof. Steam Cloud testing is deferred.
 
 ## Included
 
@@ -29,7 +37,8 @@ model has been trained. Steam Cloud testing is deferred.
 - Independent state/weapon-clock auditing, corrected CS2 pause/ammo extraction, per-window acceptance and multi-clip campaign summaries.
 - Pinned Reka renderer checkout/setup, a tested one-job adapter, and environment diagnostics.
 
-This milestone prepares and inspects data. Model training and live controls are later handoff milestones.
+This milestone prepares and inspects data and tests bounded scripted local
+controls. Model training and live policy control are later handoff milestones.
 
 ## Quick start on this machine
 

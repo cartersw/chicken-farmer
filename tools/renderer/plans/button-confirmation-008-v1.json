@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "producer": "cs2-controlled-calibration-plan-v1",
+  "map": "de_dust2",
+  "fps": 32,
+  "width": 1280,
+  "height": 720,
+  "duration_seconds": 8,
+  "actions": [
+    {
+      "id": "forward_triple_press_one",
+      "at_ms": 1001,
+      "command": "+forward"
+    },
+    {
+      "id": "forward_triple_release",
+      "at_ms": 1001,
+      "command": "-forward"
+    },
+    {
+      "id": "forward_triple_press_two",
+      "at_ms": 1001,
+      "command": "+forward"
+    },
+    {
+      "id": "forward_final_release",
+      "at_ms": 1429,
+      "command": "-forward"
+    },
+    {
+      "id": "back_initial_press",
+      "at_ms": 2003,
+      "command": "+back"
+    },
+    {
+      "id": "back_triple_release_one",
+      "at_ms": 2407,
+      "command": "-back"
+    },
+    {
+      "id": "back_triple_press",
+      "at_ms": 2407,
+      "command": "+back"
+    },
+    {
+      "id": "back_triple_release_two",
+      "at_ms": 2407,
+      "command": "-back"
+    },
+    {
+      "id": "attack_quad_press_one",
+      "at_ms": 4009,
+      "command": "+attack"
+    },
+    {
+      "id": "attack_quad_release_one",
+      "at_ms": 4009,
+      "command": "-attack"
+    },
+    {
+      "id": "attack_quad_press_two",
+      "at_ms": 4009,
+      "command": "+attack"
+    },
+    {
+      "id": "attack_quad_release_two",
+      "at_ms": 4009,
+      "command": "-attack"
+    }
+  ]
+}

@@ -1,6 +1,18 @@
 # Proposed 32 Hz control contract
 
-The first contract now defines the representation of a proposed action and
+The Windows adapter now sends synthetic keyboard presses/releases and relative
+mouse movement. Its protected mouse probe measures approximately −0.022 degrees
+yaw per X count and +0.022 degrees pitch per Y count at the isolated sensitivity
+of 1, with separate held-out checks. See [synthetic input calibration](SYNTHETIC_INPUT.md).
+The [scoped executor and label builder](CONTROL_EXECUTION.md) now connect this
+representation to the protected adapter and derive partially masked local
+targets. Their measured source proof remains separate from this v1 representation.
+The [independent turn/button experiments](progress/TURN_AND_BUTTON_CALIBRATION.md)
+support scoped held-state/net-change behavior, but show that exported subtick
+records do not reproduce every known rapid console transition. Exact ordered
+event targets remain masked; the raw three planes and records stay available.
+
+The original contract defines the representation of a proposed action and
 builds diagnostic candidates from recorded commands. It does not execute game
 controls or produce new accepted training samples. Existing acceptance artifacts
 retain their original single-command target definition.
@@ -20,8 +32,8 @@ One decision covers **31,250,000 nanoseconds (32 Hz)**. The Python API is in
 
 `angular_delta_deg` contains yaw and pitch changes in game-angle degrees over
 the decision period. It does not contain mouse counts, DPI, sensitivity or a
-physical input trajectory. Game angle conventions remain unchanged; a future
-actuator mapping requires measured calibration.
+physical input trajectory. Game angle conventions remain unchanged. The measured
+local mouse mapping must retain its build/settings scope when used by an executor.
 
 `buttons_held_at_start` specifies the state of every supported semantic button
 immediately before any offset-zero events. `button_events` is an ordered array

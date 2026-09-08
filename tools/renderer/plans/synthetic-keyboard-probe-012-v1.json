@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "producer": "cs2-synthetic-input-calibration-plan-v1",
+  "map": "de_dust2",
+  "fps": 32,
+  "width": 1280,
+  "height": 720,
+  "duration_seconds": 12,
+  "events": [
+    {"id": "forward_press", "at_ms": 1000, "kind": "key", "key": "W", "pressed": true},
+    {"id": "forward_release", "at_ms": 1400, "kind": "key", "key": "W", "pressed": false},
+    {"id": "back_press", "at_ms": 1800, "kind": "key", "key": "S", "pressed": true},
+    {"id": "back_release", "at_ms": 2200, "kind": "key", "key": "S", "pressed": false},
+    {"id": "left_press", "at_ms": 2600, "kind": "key", "key": "A", "pressed": true},
+    {"id": "left_release", "at_ms": 3000, "kind": "key", "key": "A", "pressed": false},
+    {"id": "right_press", "at_ms": 3400, "kind": "key", "key": "D", "pressed": true},
+    {"id": "right_release", "at_ms": 3800, "kind": "key", "key": "D", "pressed": false},
+    {"id": "crouch_press", "at_ms": 4500, "kind": "key", "key": "LCTRL", "pressed": true},
+    {"id": "crouch_release", "at_ms": 5000, "kind": "key", "key": "LCTRL", "pressed": false},
+    {"id": "jump_press", "at_ms": 5500, "kind": "key", "key": "SPACE", "pressed": true},
+    {"id": "jump_release", "at_ms": 5563, "kind": "key", "key": "SPACE", "pressed": false},
+    {"id": "forward_tap_press", "at_ms": 7501, "kind": "key", "key": "W", "pressed": true},
+    {"id": "forward_tap_release", "at_ms": 7532, "kind": "key", "key": "W", "pressed": false},
+    {"id": "left_tap_press", "at_ms": 8107, "kind": "key", "key": "A", "pressed": true},
+    {"id": "left_tap_release", "at_ms": 8138, "kind": "key", "key": "A", "pressed": false},
+    {"id": "shot_press", "at_ms": 9001, "kind": "mouse_button", "button": "left", "pressed": true},
+    {"id": "shot_release", "at_ms": 9032, "kind": "mouse_button", "button": "left", "pressed": false},
+    {"id": "reload_press", "at_ms": 9703, "kind": "key", "key": "R", "pressed": true},
+    {"id": "reload_release", "at_ms": 9734, "kind": "key", "key": "R", "pressed": false}
+  ]
+}

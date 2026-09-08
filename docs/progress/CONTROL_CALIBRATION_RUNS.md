@@ -1,5 +1,10 @@
 # Controlled calibration implementation and run evidence
 
+This records the initial calibration milestone through recording008. The
+subsequent approved turning/button investigation is documented in
+[turning, button fields and startup cadence](TURN_AND_BUTTON_CALIBRATION.md),
+including recordings009-011 and the synthetic keyboard/mouse controller goal.
+
 Work resumed after the September 7 checkpoint. The 32 Hz control schema,
 diagnostic candidate audit CLI, protected local calibration worker, native
 calibration mode, diagnostic analyzer and protected replay wrapper are now

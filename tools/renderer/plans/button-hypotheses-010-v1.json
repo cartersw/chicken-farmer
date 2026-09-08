@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "profile": "frozen_button_hypotheses_v1",
+  "training_ready": false,
+  "live_control_ready": false,
+  "source_analysis_path": "C:\\Users\\carte\\source\\repos\\chicken-farmer\\chicken-farmer\\data\\calibration\\control-010-button-analysis\\report-v1.json",
+  "source_analysis_sha256": "f2c67a4c35a0c233a00536a97107d1965409a87f4ba7040e62ff27e9058ae8b2",
+  "source_demo_sha256": "020db6f4e1e6f533594801e8573330daeffc5b52b3445539c12ee5cde3bd380c",
+  "confirmation_plan_path": "C:\\Users\\carte\\source\\repos\\chicken-farmer\\chicken-farmer\\tools\\renderer\\plans\\button-confirmation-008-v1.json",
+  "confirmation_plan_sha256": "74bf1bdf5ff79376160ef760f48151536dee4216b0fc603333c8f9ca0b21c3f8",
+  "frozen_before_confirmation_run_exists": true,
+  "confirmation_controls": {
+    "forward": "0x0000000000000008",
+    "back": "0x0000000000000010",
+    "attack": "0x0000000000000001"
+  },
+  "rules": {
+    "plane1": "previous_plane1 updated by ordered raw subtick pressed/released bits",
+    "plane2": "previous_plane1 XOR current_plane1",
+    "plane3": "OR(raw pressed masks) AND OR(raw released masks)"
+  },
+  "required_rule_mismatches": 0,
+  "require_exact_ordered_subtick_sequence_for_each_dispatch_batch": true,
+  "timing_association": "N+1 candidate after same-player observed last-processed N with matching observed controller tick; not input-consumption proof",
+  "absence_policy": "Full live wire Data bytes must match canonical protobuf; numeric getter defaults are diagnostic only; raw presence retained",
+  "no_retuning_from_confirmation_data": true,
+  "physical_input_timestamps": false,
+  "keyboard_mouse_actuator_verified": false
+}

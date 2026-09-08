@@ -26,6 +26,7 @@ import windows as replay
 
 PROFILE = "cs2-controlled-calibration-plan-v1"
 PLUGIN_MARKER = b"CHICKEN_CONTROLLED_CALIBRATION_V1"
+SETTLE_POLICY = "CHICKEN_CALIBRATION_SETTLE_V1"
 # Reviewed calibration binaries. Update only after reviewing a changed build's
 # native assumptions; --allow-version-mismatch cannot bypass this list.
 BINARY_PROFILE = {
@@ -137,6 +138,60 @@ def require_calibration_plugin(plugin: Path) -> None:
         raise ValueError("This DLL lacks controlled calibration; rebuild the protected Windows plugin")
 
 
+def verify_startup_settle(events: list[dict[str, Any]], header: dict[str, Any],
+                         ready: dict[str, Any], *, required: bool = False) -> None:
+    """Recompute the continuous startup window; sparse milestones never suffice."""
+    if "startup_settle_policy" not in header:
+        if required or "startup_settle" in ready or any(r["event"].startswith("startup_settle_") for r in events):
+            raise ValueError("Missing startup settling policy")
+        return  # Historical recordings remain readable without claiming settling.
+    if header["startup_settle_policy"] != SETTLE_POLICY:
+        raise ValueError("Unsupported startup settling policy")
+    frequency = header["qpc_frequency"]
+    samples = [(i, r) for i, r in enumerate(events) if r["event"] == "startup_settle_sample"]
+    completes = [(i, r) for i, r in enumerate(events) if r["event"] == "startup_settle_complete"]
+    setup = [r for r in events if r["event"] == "local_setup_dispatched"]
+    if not samples or len(completes) != 1 or len(setup) != 1:
+        raise ValueError("Incomplete startup settling observations")
+    complete_index, complete = completes[0]
+    if not samples[-1][0] < complete_index < events.index(ready):
+        raise ValueError("Startup settling lifecycle is out of order")
+    window, resets, previous = [], 0, None
+    for _, sample in samples:
+        qpc, gap, tick, pawn = (sample.get(k) for k in ("qpc", "callback_gap_qpc", "controller_tick_base", "pawn_handle"))
+        if (any(type(v) is not int for v in (qpc, gap, tick, pawn)) or qpc < 0 or gap < 0 or
+                type(sample.get("eligible")) is not bool or
+                previous is not None and (qpc < previous["qpc"] or gap != qpc - previous["qpc"])):
+            raise ValueError("Invalid startup settling clocks")
+        eligible = sample["eligible"]
+        if (eligible and (tick < 0 or not 0 <= pawn < 2**32 - 1) or
+                not eligible and (tick != -1 or pawn != 2**32 - 1)):
+            raise ValueError("Invalid startup settling identity")
+        if not eligible or window and (gap > frequency // 4 or pawn != window[-1]["pawn_handle"] or tick < window[-1]["controller_tick_base"]):
+            resets += bool(window)
+            window = []
+        if eligible:
+            window.append(sample)
+        previous = sample
+    if (not window or len(window) < 32 or window[-1]["qpc"] - window[0]["qpc"] < 2 * frequency or
+            window[-1]["controller_tick_base"] - window[0]["controller_tick_base"] < 64 or
+            type(setup[0].get("qpc")) is not int or samples[0][1]["qpc"] - setup[0]["qpc"] < 6 * frequency):
+        raise ValueError("Startup settling duration, cadence or tick progress is insufficient")
+    expected = {"policy": SETTLE_POLICY, "start_qpc": window[0]["qpc"], "end_qpc": window[-1]["qpc"],
+                "first_tick_base": window[0]["controller_tick_base"], "last_tick_base": window[-1]["controller_tick_base"],
+                "pawn_handle": window[0]["pawn_handle"], "sample_count": len(window), "reset_count": resets,
+                "max_callback_gap_qpc": max(r["callback_gap_qpc"] for r in window[1:]),
+                "required_seconds": 2, "maximum_gap_ms": 250, "minimum_samples": 32,
+                "minimum_tick_advance": 64, "physical_input_timing_verified": False}
+    local = ready.get("local_player", {})
+    if (type(local.get("pawn_handle")) is not int or local["pawn_handle"] != expected["pawn_handle"] or
+            type(local.get("controller_tick_base")) is not int or local["controller_tick_base"] < expected["last_tick_base"]):
+        raise ValueError("Startup settling pawn or clock changed before capture readiness")
+    if (complete.get("evidence") != expected or ready.get("startup_settle") != expected or
+            complete.get("qpc") != expected["end_qpc"] or not expected["end_qpc"] <= ready["qpc"]):
+        raise ValueError("Startup settling evidence disagrees with observed callbacks")
+
+
 def verify_binary_profile(game: Path) -> dict[str, str]:
     actual = {name: replay.sha256_file(game / name) for name in BINARY_PROFILE}
     changed = [name for name, expected in BINARY_PROFILE.items() if actual[name] != expected]
@@ -220,13 +275,16 @@ def first_person_ready(local: Any) -> bool:
     return math.hypot(camera[0] - origin[0], camera[1] - origin[1]) <= 2 and 24 <= camera[2] - origin[2] <= 76
 
 
-def verify_native_completion(path: Path, plan: dict[str, Any]) -> dict[str, Any]:
+def verify_native_completion(path: Path, plan: dict[str, Any], *, require_settle: bool = False) -> dict[str, Any]:
     """Check that one protected run completed its declared control schedule.
 
     This is a capture-completeness check, not an input-timing calibration result.
     Later analysis must independently compare the commands and original/replay
     observations; a well-formed ledger alone cannot establish those relations.
     """
+    from cs2_data.synthetic_input_plan import PROFILE as synthetic_profile
+    synthetic = plan.get("producer") == synthetic_profile
+    expected_actions = [] if synthetic else plan["actions"]
     if not path.is_file() or not 0 < path.stat().st_size <= 256 * 1024**2:
         raise ValueError("Missing or oversized native calibration ledger")
     digest = replay.sha256_file(path)
@@ -259,11 +317,15 @@ def verify_native_completion(path: Path, plan: dict[str, Any]) -> dict[str, Any]
         raise ValueError("Native calibration lifecycle records are out of order")
     if any(row["event"] in ("calibration_error", "calibration_failed", "error") for row in events):
         raise ValueError("Native calibration reported a failure")
-    if (header.get("control_source") != "dispatched_engine_controls_not_physical_device_latency" or
-            header.get("producer") != PROFILE or header.get("plugin_marker") != PLUGIN_MARKER.decode() or
+    if (header.get("control_source") != ("external_windows_SendInput" if synthetic else "dispatched_engine_controls_not_physical_device_latency") or
+            header.get("producer") != (synthetic_profile if synthetic else PROFILE) or header.get("plugin_marker") != PLUGIN_MARKER.decode() or
             header.get("physical_input_timestamps") is not False or header.get("training_ready") is not False or
             header.get("plan") != plan or type(header.get("qpc_frequency")) is not int or header["qpc_frequency"] <= 0):
         raise ValueError("Native calibration header lacks the dispatched-control clock provenance")
+    if synthetic and (header.get("synthetic_input_marker") != "CHICKEN_SYNTHETIC_INPUT_BRIDGE_V1" or
+                      ready.get("synthetic_input_bridge_verified") is not True or
+                      complete.get("external_events_planned") != len(plan["events"])):
+        raise ValueError("Native synthetic bridge identity/completion mismatch")
     if (ready.get("clock_basis") != "local_controller_tick_base_64hz" or
             type(ready.get("start_tick_base")) is not int or ready["start_tick_base"] < 0 or
             ready.get("map") != plan["map"] or
@@ -282,7 +344,7 @@ def verify_native_completion(path: Path, plan: dict[str, Any]) -> dict[str, Any]
     stop_index, stop = one("recording_stop_dispatched")
     if (not ready_index < stop_index < complete_index or
             type(complete.get("actions_dispatched")) is not int or
-            complete["actions_dispatched"] != len(plan["actions"]) or
+            complete["actions_dispatched"] != len(expected_actions) or
             complete.get("training_ready") is not False or complete.get("timing_status") != "unverified" or
             type(stop.get("elapsed_ms")) not in (int, float) or not math.isfinite(stop["elapsed_ms"]) or
             stop["elapsed_ms"] < plan["duration_seconds"] * 1000):
@@ -293,10 +355,10 @@ def verify_native_completion(path: Path, plan: dict[str, Any]) -> dict[str, Any]
     if not header["qpc"] <= ready["qpc"] <= stop["qpc"] <= complete["qpc"]:
         raise ValueError("Native calibration lifecycle QPC moved backwards")
     dispatched = [(index, row) for index, row in enumerate(events) if row["event"] == "action_dispatch"]
-    if len(dispatched) != len(plan["actions"]):
+    if len(dispatched) != len(expected_actions):
         raise ValueError("Native calibration did not dispatch exactly the planned actions")
     previous_qpc, previous_elapsed = ready["qpc"], -1.0
-    for (index, row), action in zip(dispatched, plan["actions"]):
+    for (index, row), action in zip(dispatched, expected_actions):
         if not ready_index < index < stop_index or any(row.get(key) != action[key] for key in ("id", "command", "at_ms")):
             raise ValueError("Native action order or contents disagree with the immutable plan")
         if type(row.get("at_ms")) is not int:
@@ -307,6 +369,7 @@ def verify_native_completion(path: Path, plan: dict[str, Any]) -> dict[str, Any]
                 not max(previous_elapsed, action["at_ms"]) <= elapsed <= plan["duration_seconds"] * 1000 + 250):
             raise ValueError("Native action clocks are missing, reversed, early or outside the run")
         previous_qpc, previous_elapsed = after, elapsed
+    verify_startup_settle(events, header, ready, required=require_settle)
     if replay.sha256_file(path) != digest:
         raise ValueError("Native calibration evidence changed while checking completion")
     return {"status": "schedule_completed", "ledger_sha256": digest,
@@ -316,41 +379,51 @@ def verify_native_completion(path: Path, plan: dict[str, Any]) -> dict[str, Any]
             "calibration_accuracy_verified": False, "training_ready": False}
 
 
+def check_capture_budget(roots: list[Path], plan: dict[str, Any], out: Path) -> tuple[int, int]:
+    nominal = plan["duration_seconds"] * plan["fps"]
+    maximum_frames = nominal + 64
+    byte_limit = maximum_frames * (plan["width"] * plan["height"] * 4 + 4096)
+    frames = replay.capture_files(roots, plan["movie_name"])
+    size = sum(path.stat().st_size for path in frames)
+    if len(frames) > maximum_frames or size > byte_limit:
+        raise RuntimeError("Controlled calibration exceeded its bounded frame/disk budget")
+    demo_roots = [root.parent for root in roots]
+    if demo_roots:
+        demo_roots.append(demo_roots[-1].parent)
+    demos = recording_files(demo_roots, plan["movie_name"])
+    if len(demos) > 1 or any(path.stat().st_size > 1024**3 for path in demos):
+        raise RuntimeError("Controlled calibration has duplicate or oversized demo recordings")
+    for filename, limit in (("controlled.dem", 1024**3), ("calibration_ledger.jsonl", 256 * 1024**2),
+                            ("capture_ledger.jsonl", 512 * 1024**2), ("input_ledger.jsonl", 16 * 1024**2)):
+        path = out / filename
+        if path.exists() and path.stat().st_size > limit:
+            raise RuntimeError(f"Controlled calibration exceeded its {filename} size budget")
+    return len(frames), size
+
+
 def wait_for_calibration(process: subprocess.Popen, roots: list[Path], plan: dict[str, Any],
                          out: Path, timeout: float) -> int:
     start = time.monotonic()
     notice = start
-    nominal = plan["duration_seconds"] * plan["fps"]
-    maximum_frames = nominal + 64
-    byte_limit = maximum_frames * (plan["width"] * plan["height"] * 4 + 4096)
     while process.poll() is None:
         elapsed = time.monotonic() - start
         if elapsed > timeout:
             raise TimeoutError(f"Owned calibration process did not finish within {timeout:g} seconds")
-        frames = replay.capture_files(roots, plan["movie_name"])
-        size = sum(path.stat().st_size for path in frames)
-        if len(frames) > maximum_frames or size > byte_limit:
-            raise RuntimeError("Controlled calibration exceeded its bounded frame/disk budget")
-        demo_roots = [root.parent for root in roots]
-        if demo_roots:
-            demo_roots.append(demo_roots[-1].parent)
-        demos = recording_files(demo_roots, plan["movie_name"])
-        if len(demos) > 1 or any(path.stat().st_size > 1024**3 for path in demos):
-            raise RuntimeError("Controlled calibration has duplicate or oversized demo recordings")
-        for filename, limit in (("controlled.dem", 1024**3), ("calibration_ledger.jsonl", 256 * 1024**2),
-                                ("capture_ledger.jsonl", 512 * 1024**2)):
-            path = out / filename
-            if path.exists() and path.stat().st_size > limit:
-                raise RuntimeError(f"Controlled calibration exceeded its {filename} size budget")
+        frame_count, size = check_capture_budget(roots, plan, out)
         if elapsed - (notice - start) >= 15:
-            print(f"Calibration running: {elapsed:.0f}s elapsed, {len(frames)} frames, {size / 1024**2:.1f} MiB", flush=True)
+            print(f"Calibration running: {elapsed:.0f}s elapsed, {frame_count} frames, {size / 1024**2:.1f} MiB", flush=True)
             notice = time.monotonic()
         time.sleep(0.5)
     return process.returncode
 
 
-def run_calibration(args: argparse.Namespace, original_plan: dict[str, Any]) -> dict[str, Any]:
-    original_plan = validate_plan(original_plan)
+def run_calibration(args: argparse.Namespace, original_plan: dict[str, Any], *, backend=None) -> dict[str, Any]:
+    """Share one settings/process lease across the two explicit local actuators.
+
+    The optional backend is supplied by synthetic_windows, never loaded from a
+    plan or command-line module name. The console path remains the default.
+    """
+    original_plan = (backend.validate_plan if backend else validate_plan)(original_plan)
     if not args.execute:
         raise ValueError("Executing calibration requires explicit --execute")
     if not math.isfinite(args.timeout) or not 10 <= args.timeout <= 1800:
@@ -359,14 +432,14 @@ def run_calibration(args: argparse.Namespace, original_plan: dict[str, Any]) -> 
     if out.is_relative_to(game) or game.is_relative_to(out):
         raise ValueError("Calibration output must be separate from the game installation")
     run_id = uuid.uuid4().hex
-    plan = native_plan(original_plan, out, run_id)
+    plan = (backend.native_plan if backend else native_plan)(original_plan, out, run_id)
     out.mkdir(parents=True, exist_ok=False)
     lease = replay.GameInfoLease(game, out, run_id)
     movie_roots = [lease.mod_dir / "movie", game / "csgo/movie"]
     manifest = out / "calibration.json"
-    report = {"schema_version": 1, "profile": PROFILE, "run_id": run_id, "status": "preparing",
+    report = {"schema_version": 1, "profile": backend.PROFILE if backend else PROFILE, "run_id": run_id, "status": "preparing",
               "training_ready": False, "timing_status": "unverified", "physical_input_timestamps": False,
-              "control_source": "native_engine_console_dispatch", "map": plan["map"],
+              "control_source": backend.CONTROL_SOURCE if backend else "native_engine_console_dispatch", "map": plan["map"],
               "source_plan": original_plan, "capture_prefix": plan["movie_name"],
               "game_dir": str(game), "owned_game_mod_dir": str(lease.mod_dir),
               "recovery_journal": str(lease.journal_path), "started_at_unix": time.time(),
@@ -378,6 +451,10 @@ def run_calibration(args: argparse.Namespace, original_plan: dict[str, Any]) -> 
         ffmpeg, ffprobe, info = replay.preflight(game, plugin, args.ffmpeg, args.ffprobe,
                                                 args.allow_version_mismatch)
         require_calibration_plugin(plugin)
+        if backend:
+            backend.require_plugin(plugin)
+        if SETTLE_POLICY.encode() not in plugin.read_bytes():
+            raise ValueError("New calibration recordings require the measured startup-settling plugin")
         report["binary_profile"] = verify_binary_profile(game)
         report.update(cs2_build=info, plugin_sha256=replay.sha256_file(plugin))
         roots = replay.discover_settings_roots(game, args.steam_dir, args.steam_user_id)
@@ -408,7 +485,7 @@ def run_calibration(args: argparse.Namespace, original_plan: dict[str, Any]) -> 
         replay.require_cs2_idle()
         lease.activate()
         replay.require_cs2_idle()
-        launch = launch_arguments(game, out, plan)
+        launch = (backend.launch_arguments if backend else launch_arguments)(game, out, plan)
         report.update(launch_arguments=launch, status="running")
         replay.atomic_json(manifest, report)
         environment = {**os.environ, "SteamAppId": "730", "SteamGameId": "730",
@@ -421,7 +498,8 @@ def run_calibration(args: argparse.Namespace, original_plan: dict[str, Any]) -> 
             lease.record_pid(process.pid)
             report["owned_cs2_pid"] = process.pid
             replay.atomic_json(manifest, report)
-            code = wait_for_calibration(process, movie_roots, plan, out, args.timeout)
+            code = (backend.wait_for_calibration if backend else wait_for_calibration)(
+                process, movie_roots, plan, out, args.timeout)
         report["cs2_exit_code"] = code
         if code:
             raise RuntimeError(f"Owned calibration process exited with code {code}")
@@ -484,7 +562,10 @@ def run_calibration(args: argparse.Namespace, original_plan: dict[str, Any]) -> 
                ("gameinfo_restored", "settings_restored", "staged_plugin_removed_from_game")):
             raise ValueError("Calibration protection did not verify restoration and plugin removal")
         report["settings_isolation"] = replay.verify_settings_isolation(out, expected_pid=process.pid)
-        report["native_completion"] = verify_native_completion(out / "calibration_ledger.jsonl", plan)
+        report["native_completion"] = (backend.verify_native_completion if backend else verify_native_completion)(
+            out / "calibration_ledger.jsonl", plan, require_settle=True)
+        if backend:
+            report.update(backend.verify_input_completion(out, plan, process.pid))
         report["demo"] = archive_recording([movie_roots[0].parent, game / "csgo", game], out, plan["movie_name"])
         files = replay.capture_files(movie_roots, plan["movie_name"])
         capture_job = {"clip_id": plan["movie_name"], **{key: plan[key] for key in ("fps", "width", "height")}}

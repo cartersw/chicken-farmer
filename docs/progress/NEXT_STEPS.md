@@ -1,13 +1,20 @@
 # Remaining work
 
-**Updated: 2026-09-07.** Evidence: [STATUS.md](STATUS.md).
+**Updated: 2026-09-08.** Evidence: [STATUS.md](STATUS.md).
 
-The user approved defining the controller format and building controlled Windows
-calibration before expanding training work. Work has resumed; see the
-[current calibration run evidence](CONTROL_CALIBRATION_RUNS.md). Remaining work
-includes resolving measured original/replay phase differences and button
-semantics before training labels can be promoted. Complete-command extraction
-and the first original/replay diagnostic comparison now pass.
+The approved first turning/button investigation is complete. See
+[turn and button results](TURN_AND_BUTTON_CALIBRATION.md): continuous turns
+support a frozen interpolation candidate, while rapid-input confirmation
+falsifies complete event reconstruction from exported records. Startup gaps
+occurred before the measured captures. The user clarified that the final agent
+must synthesize keyboard/mouse input. The adapter and first protected synthetic
+calibration are now complete: [mouse and keyboard results](SYNTHETIC_INPUT_CALIBRATION.md).
+
+The approved executor and scoped label work is now implemented. The combined
+recording verifies angular/button/movement response but fails raw mouse-count
+sum equality; that stricter result remains incomplete. The independent label
+audit passes all twelve mouse and ten keyboard checks. See
+[the new milestone](CONTROL_EXECUTION_AND_LABELS.md).
 
 ## Current controller/calibration work
 
@@ -20,9 +27,20 @@ and the first original/replay diagnostic comparison now pass.
 - [x] Measure dispatch/command associations while preserving separate clock fields.
 - [x] Replay a state-derived window covering shot, crouch and turn (160 frames).
 - [x] Finish original/replay state and pixel diagnostics (160 native pixel matches; sampled shot/crouch state agrees).
-- [ ] Investigate the measured turn discrepancy (up to 9.375 degrees at equal numeric controller ticks) and distinguish input, state and render phases.
-- [ ] Repeat phase-varied press/release/tap trials before assigning general semantic button labels.
-- [ ] Add a separately measured mouse/angle actuator and weapon-selection representation.
+- [x] Investigate the turn discrepancy with an independently tested, frozen interpolation candidate (22 ordinary turns pass; large angle step remains an outlier).
+- [x] Repeat hold/tap/overlap and three/four-transition probes; retain the failed exact-event hypothesis and observed held-state/net-change support.
+- [x] Add measured startup cadence and continuous settling, independently checked through capture readiness.
+- [x] Implement and measure synthetic keyboard presses/releases and relative mouse movement through the protected local workflow; retain sent-event ground truth (770 images, 1,680 full commands, mouse held-out and ten keyboard/button phase checks pass).
+- [x] Correct post-insertion scheduling, replace coarse Python polling with a scoped high-resolution wait timer, and preserve both failed scheduling runs and cleanup evidence.
+- [x] Connect the 32 Hz angular/held-button/event contract to the adapter, including scoped gain conversion, fractional mouse-count accumulation and explicit unsupported-control handling.
+- [x] Define scoped semantic targets using confirmed fields and explicit masks for unrecoverable event count/timing; validate against the synthetic-input experiment.
+- [x] Record a fixed combined-aim/WASD/crouch program and independently check compilation, insertion receipts, effective settings, pixels and response; retain the raw-count mismatch as an incomplete overall audit.
+- [x] Bound the first combined-input raw mouse-count discrepancy: wider neighborhoods retain the same missing first-impulse counts, while recorded view/history and native angles retain their angular effect. Keep the frozen equality failure and angular label targets.
+- [ ] Investigate the underlying raw-count aggregation rule only if pursuing exact mouse-count/event reconstruction; the current scoped angular labels do not assume count conservation.
+- [ ] Extend synthetic response coverage to walk/secondary attack and larger turns. The first combined test adds small mixed-axis and repeated mouse input with movement; it does not establish general response or exact consumption timing.
+- [ ] Extend actual dispatch phases/cadence beyond the current 32 FPS console loop; off-grid scheduled milliseconds alone are not phase variation.
+- [ ] Investigate large angle cuts/recoil separately; do not apply a universal frame shift.
+- [ ] Define and measure weapon-selection controls.
 - [ ] Resolve the remaining replay observer HUD strip before full visual training acceptance.
 - [ ] Re-establish current-build competitive packet/command support, or recover the exact archived binaries needed to revalidate the historical pilot.
 

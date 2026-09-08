@@ -1,6 +1,69 @@
 # Current implementation status
 
-**Latest work: controller CLI and controlled Windows calibration implemented.**
+**Latest work (2026-09-08): 32 Hz executor and scoped label builder implemented.**
+The executor carries fractional mouse counts, retains held keys and sends the
+compiled program through the protected Windows adapter. The completed combined
+test produced 256 decisions, 82 OS events, 385 verified images and 840 complete
+commands. All five phases match the requested angular response and movement or
+crouch behavior. A stricter raw demo mouse-count sum check fails in every phase;
+the independent overall result remains incomplete, with the mismatch preserved.
+See [results and limits](CONTROL_EXECUTION_AND_LABELS.md) and
+[API/reproduction](../CONTROL_EXECUTION.md).
+
+The new source-checked label export produces 838 two-command candidates from the
+earlier local mouse/keyboard recordings: 834 have some usable fields, including
+63 with all scoped non-exact fields observed. All twelve mouse and ten keyboard
+cross-checks pass. Missing fields and exact event count/order/timing stay masked.
+These local labels have no competitive image acceptance and no model was trained.
+
+Two preflight attempts inserted no input; the second identified VS Code holding
+foreground focus. The focused retry completed. All three preserved the 39
+selected personal files, restored gameinfo and removed staging. Actual ready-time
+mouse scales were verified; historical early sensitivity readbacks remain
+explicitly distinguished from ready-time evidence. Steam mode/Cloud preferences
+were unchanged. Verification: **1,455 Python tests passed in 45.03 seconds**,
+native Release build passed, and final direct personal-file/gameinfo hashes match.
+
+**Previous milestone: synthetic Windows keyboard/mouse control measured.**
+The reusable adapter sends scan-code keys, mouse buttons and relative mouse
+movement through Windows. The protected mouse and keyboard recordings produced
+**770 verified original images and 1,680 complete UserCmds**. All four mouse fit
+cases and eight held-out cases pass; all ten keyboard/button response phases and
+20 event checks pass. See [the run evidence](SYNTHETIC_INPUT_CALIBRATION.md) and
+[the API/reproduction guide](../SYNTHETIC_INPUT.md).
+
+Two failed keyboard attempts exposed a post-insertion scheduling mistake and
+coarse Python sleep timing. They remain preserved; a corrected pre-insertion
+check, scoped high-resolution wait timer and disk work outside input deadlines
+enabled the unchanged keyboard plan to complete. All four attempts preserved
+the 39 selected personal files, restored gameinfo and removed the staged plugin.
+Final checks found no running CS2 or renderer staging. Steam mode and Cloud
+preferences were unchanged.
+
+Verification: **1,258 Python tests passed in 44.73 seconds**, native Release
+build passed, and both successful recordings passed their independent audits.
+At that milestone, exact input-consumption timing, a 32 Hz action-contract executor
+and general semantic training labels remained unfinished. No competitive samples were added
+and no model was trained.
+
+**Previous milestone: turning/button investigation and measured startup settling.**
+Three new controlled recordings contain 1,155 verified original images and
+2,519 fully reconstructed commands; a new turn replay adds 160 verified images.
+The frozen interpolation candidate passes all 22 ordinary turn checks in the
+independent recording, while its large angle step remains an outlier. Rapid
+button tests confirm scoped held-state/net-change rules and show that exported
+records do not reproduce every known console transition. Exact event labels
+remain masked. See [the full results](TURN_AND_BUTTON_CALIBRATION.md).
+
+Those earlier probes used console dispatch to diagnose timing and button fields.
+Measured startup delays occurred before capture, and the
+worker verifies a continuous settling period. No new competitive samples were
+accepted and no model was trained.
+Verification: **987 Python tests passed**, native Release build passed, and all
+four sessions preserved the 39 protected files and removed their staged plugins.
+CS2 was closed at the final check; Steam mode/Cloud preferences were unchanged.
+
+**Earlier milestone: controller CLI and controlled Windows calibration implemented.**
 The successful local probe has 321 verified images, 14 control events and all
 711 full commands reconstructed without parser warnings. Its protected replay
 produced 160 images over five seconds. Both processes exited cleanly, preserved
@@ -65,6 +128,8 @@ future-command profile, and none of its original artifacts were relabeled.
 
 | Component | Current behavior and evidence |
 | --- | --- |
+| Synthetic Windows input | Protected SendInput adapter and bounded 32 Hz executor; combined aim and movement response observed, while raw mouse-count equality remains unresolved. Exact consumption timing is unverified. |
+| Scoped control labels | Source-checked local aim, held-state/net-change and activity fields with per-field masks; 838 diagnostic candidates and twelve mouse/ten keyboard checks. Competitive image acceptance remains separate. |
 | Canonical extraction | All three demos retain 4,933,316 reconstructed commands, full protobufs, identity/presence fields, state, rounds and events. Missing baselines and invalid fractions remain visible. |
 | Windows rendering | Protected trial 016 renders 1280x720 at 32 FPS, retaining 160 raw TGA, MP4, PTS, native readback hashes, packet evidence and the final endpoint. |
 | Settings protection | Trial 012 verified local isolation and cleanup; clock captures 014-016 also preserved all 39 selected files and removed staged plugins. Steam Offline Mode was reported by the user; online Cloud/reconnection behavior is unverified and deferred. |

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "producer": "cs2-synthetic-input-calibration-plan-v1",
+  "map": "de_dust2",
+  "fps": 32,
+  "width": 1280,
+  "height": 720,
+  "duration_seconds": 12,
+  "events": [
+    {"id": "fit-x-positive", "at_ms": 1000, "kind": "mouse_move", "dx": 40, "dy": 0},
+    {"id": "fit-x-negative", "at_ms": 1750, "kind": "mouse_move", "dx": -40, "dy": 0},
+    {"id": "fit-y-positive", "at_ms": 2500, "kind": "mouse_move", "dx": 0, "dy": 40},
+    {"id": "fit-y-negative", "at_ms": 3250, "kind": "mouse_move", "dx": 0, "dy": -40},
+    {"id": "validation-x-small-positive", "at_ms": 4500, "kind": "mouse_move", "dx": 20, "dy": 0},
+    {"id": "validation-x-small-negative", "at_ms": 5250, "kind": "mouse_move", "dx": -20, "dy": 0},
+    {"id": "validation-x-large-positive", "at_ms": 6000, "kind": "mouse_move", "dx": 80, "dy": 0},
+    {"id": "validation-x-large-negative", "at_ms": 6750, "kind": "mouse_move", "dx": -80, "dy": 0},
+    {"id": "validation-y-small-positive", "at_ms": 8000, "kind": "mouse_move", "dx": 0, "dy": 20},
+    {"id": "validation-y-small-negative", "at_ms": 8750, "kind": "mouse_move", "dx": 0, "dy": -20},
+    {"id": "validation-y-large-positive", "at_ms": 9500, "kind": "mouse_move", "dx": 0, "dy": 80},
+    {"id": "validation-y-large-negative", "at_ms": 10250, "kind": "mouse_move", "dx": 0, "dy": -80}
+  ]
+}

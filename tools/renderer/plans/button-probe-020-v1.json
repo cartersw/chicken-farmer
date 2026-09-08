@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "producer": "cs2-controlled-calibration-plan-v1",
+  "map": "de_dust2",
+  "fps": 32,
+  "width": 1280,
+  "height": 720,
+  "duration_seconds": 20,
+  "actions": [
+    {
+      "id": "forward_hold_press",
+      "at_ms": 1000,
+      "command": "+forward"
+    },
+    {
+      "id": "forward_hold_release",
+      "at_ms": 1500,
+      "command": "-forward"
+    },
+    {
+      "id": "forward_short_press",
+      "at_ms": 2000,
+      "command": "+forward"
+    },
+    {
+      "id": "forward_short_release",
+      "at_ms": 2032,
+      "command": "-forward"
+    },
+    {
+      "id": "forward_same_boundary_press",
+      "at_ms": 2500,
+      "command": "+forward"
+    },
+    {
+      "id": "forward_same_boundary_release",
+      "at_ms": 2500,
+      "command": "-forward"
+    },
+    {
+      "id": "back_hold_press",
+      "at_ms": 3000,
+      "command": "+back"
+    },
+    {
+      "id": "back_repress_release",
+      "at_ms": 3400,
+      "command": "-back"
+    },
+    {
+      "id": "back_repress_press",
+      "at_ms": 3400,
+      "command": "+back"
+    },
+    {
+      "id": "back_hold_release",
+      "at_ms": 3800,
+      "command": "-back"
+    },
+    {
+      "id": "left_overlap_press",
+      "at_ms": 4250,
+      "command": "+left"
+    },
+    {
+      "id": "right_overlap_press",
+      "at_ms": 4500,
+      "command": "+right"
+    },
+    {
+      "id": "left_overlap_release",
+      "at_ms": 4750,
+      "command": "-left"
+    },
+    {
+      "id": "right_overlap_release",
+      "at_ms": 5000,
+      "command": "-right"
+    },
+    {
+      "id": "duck_jump_duck_press",
+      "at_ms": 5500,
+      "command": "+duck"
+    },
+    {
+      "id": "duck_jump_press",
+      "at_ms": 5750,
+      "command": "+jump"
+    },
+    {
+      "id": "duck_jump_release",
+      "at_ms": 5782,
+      "command": "-jump"
+    },
+    {
+      "id": "duck_jump_duck_release",
+      "at_ms": 6250,
+      "command": "-duck"
+    },
+    {
+      "id": "standing_jump_press",
+      "at_ms": 7500,
+      "command": "+jump"
+    },
+    {
+      "id": "standing_jump_release",
+      "at_ms": 7532,
+      "command": "-jump"
+    },
+    {
+      "id": "attack_short_press",
+      "at_ms": 9500,
+      "command": "+attack"
+    },
+    {
+      "id": "attack_short_release",
+      "at_ms": 9550,
+      "command": "-attack"
+    },
+    {
+      "id": "attack_same_boundary_press",
+      "at_ms": 10000,
+      "command": "+attack"
+    },
+    {
+      "id": "attack_same_boundary_release",
+      "at_ms": 10000,
+      "command": "-attack"
+    },
+    {
+      "id": "reload_press",
+      "at_ms": 11000,
+      "command": "+reload"
+    },
+    {
+      "id": "reload_release",
+      "at_ms": 11032,
+      "command": "-reload"
+    },
+    {
+      "id": "duck_hold_press",
+      "at_ms": 14500,
+      "command": "+duck"
+    },
+    {
+      "id": "duck_hold_release",
+      "at_ms": 15000,
+      "command": "-duck"
+    },
+    {
+      "id": "forward_duck_forward_press",
+      "at_ms": 15500,
+      "command": "+forward"
+    },
+    {
+      "id": "forward_duck_duck_press",
+      "at_ms": 15625,
+      "command": "+duck"
+    },
+    {
+      "id": "forward_duck_forward_release",
+      "at_ms": 16000,
+      "command": "-forward"
+    },
+    {
+      "id": "forward_duck_duck_release",
+      "at_ms": 16125,
+      "command": "-duck"
+    },
+    {
+      "id": "right_tap_one_press",
+      "at_ms": 17000,
+      "command": "+right"
+    },
+    {
+      "id": "right_tap_one_release",
+      "at_ms": 17032,
+      "command": "-right"
+    },
+    {
+      "id": "right_tap_two_press",
+      "at_ms": 17100,
+      "command": "+right"
+    },
+    {
+      "id": "right_tap_two_release",
+      "at_ms": 17132,
+      "command": "-right"
+    },
+    {
+      "id": "sprint_forward_sprint_press",
+      "at_ms": 17750,
+      "command": "+sprint"
+    },
+    {
+      "id": "sprint_forward_forward_press",
+      "at_ms": 17750,
+      "command": "+forward"
+    },
+    {
+      "id": "sprint_forward_forward_release",
+      "at_ms": 18250,
+      "command": "-forward"
+    },
+    {
+      "id": "sprint_forward_sprint_release",
+      "at_ms": 18250,
+      "command": "-sprint"
+    }
+  ]
+}

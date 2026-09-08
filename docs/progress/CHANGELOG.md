@@ -2,6 +2,99 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-08 - 32 Hz execution and source-checked partial labels
+
+Implemented the approved executor and label builder. The executor uses an
+independently issued measured profile, carries fractional mouse counts, checks
+held-state continuity and compiles bounded Windows events. Its protected worker
+checks four actual ready-time mouse scales before insertion. Historical early
+sensitivity reads are retained explicitly, rather than treated as ready-time proof.
+
+The label audit rechecked 770 original images and 1,680 full commands and produced
+838 two-command candidates. Of these, 834 have some usable fields; 63 have all
+scoped non-exact fields. All twelve mouse and ten keyboard checks agree. Exact
+event count/order/timing and absent message parents remain masked. The new local
+profile accommodates observed repeated/+2 client-generation ticks while requiring
+consecutive command/demo/execution ticks; older acceptance profiles are unchanged.
+
+Two live attempts stopped before any insertion. Improved error receipts identified
+VS Code holding foreground focus in the second attempt. After the user focused
+CS2, the unchanged program completed with 256 decisions, 82 OS events, 385 verified
+images and 840 complete commands. All five phases show expected angular and
+movement/crouch effects. Raw mouse-count sums omit each phase's first impulse,
+whose angular effect remains in recorded view/history and native camera evidence.
+The frozen overall equality audit remains incomplete; no exact timing claim is made.
+
+All three attempts preserved 39 selected personal files with zero restore
+operations, restored gameinfo and removed staging. Final direct hashes matched,
+with no CS2 process or renderer staging remaining. Steam mode/Cloud preferences
+were unchanged. **1,455 Python tests passed in 45.03 seconds**, native Release
+build passed. See [full evidence](CONTROL_EXECUTION_AND_LABELS.md) and
+[API/reproduction](../CONTROL_EXECUTION.md). No competitive acceptance or model
+training was added.
+
+## 2026-09-08 - Windows synthetic input adapter and measured local response
+
+Completed the approved keyboard/mouse adapter and first protected calibration.
+Added bounded synthetic plans, external Win32 SendInput, a passive native
+local-state/simulation-clock bridge, complete insertion/cleanup receipts, a
+scoped high-resolution polling timer and independent response analyzers.
+Probe actions use OS input; console commands configure only the private session
+and its recording. The existing settings and owned-process lifecycle is shared.
+
+Mouse001 and keyboard004 produced **770 original frames and 1,680 full commands**,
+all independently bound to native pixels/original demo bytes. Mouse gain is
+approximately −0.022 yaw degrees/X count and +0.022 pitch degrees/Y count at the
+isolated sensitivity of 1. Four fit and eight unchanged held-out cases pass.
+All ten keyboard/button response phases and twenty event checks pass; firing
+and reload have corroborating ammunition/weapon evidence.
+
+Keyboard002 exposed a post-insertion deadline-check mistake; 003 exposed a real
+missed short tap caused by coarse polling. Both failed artifacts are retained.
+Pre-insertion deadline checks, a scoped high-resolution wait timer and disk work
+away from input deadlines let the identical plan complete in 004. All four
+attempts preserved 39 selected personal files with zero restore operations,
+restored gameinfo and removed their staged plugins. Final checks found no CS2
+process or renderer staging. Steam mode/Cloud preferences were unchanged.
+
+Verification: **1,258 Python tests passed in 44.73 seconds**, native Release
+build and `git diff --check` passed. See [run evidence](SYNTHETIC_INPUT_CALIBRATION.md)
+and [API/reproduction](../SYNTHETIC_INPUT.md). Exact consumption/subtick timing,
+the 32 Hz contract executor and semantic training acceptance remain unfinished;
+no model was trained or competitive acceptance changed.
+
+## 2026-09-07 - Independent turning/button tests and startup settling
+
+Completed the approved turning investigation and button probes, incorporating
+the user's observed startup freezes and final synthetic keyboard/mouse goal.
+Added native startup cadence, a continuous settling requirement and independent
+Python verification through capture readiness. A review found and fixed a gap
+that allowed a different pawn or reset clock between settling and capture.
+
+Recordings009-011 produced 1,155 original images and 2,519 reconstructed full
+commands; replay009 adds 160 images. All archived images match their own native
+readbacks. All four sessions exited normally, preserved all 39 selected
+personal files, restored gameinfo and removed their staged plugins. Steam mode
+and Cloud preferences were not changed.
+
+The frozen turning candidate passes all 22 ordinary left/right turn checks in
+recording009; a 175-degree step retains its failed 0.0362-degree residual.
+Startup gaps occurred before capture, while measured capture gaps stayed below
+36 ms. The button confirmation supports scoped plane-1 held state and plane-2
+net change, but falsifies complete edge reconstruction: three/four console
+transitions can yield fewer exported subtick records. No rule was retuned and
+no semantic training acceptance was enabled.
+
+Reusable diagnostics, frozen plans, measured limits and the next synthetic-input
+adapter milestone are documented in
+[turning/button results](TURN_AND_BUTTON_CALIBRATION.md) and
+[the plans guide](../../tools/renderer/plans/README.md).
+
+Verification: **987 Python tests passed in 42.01 seconds**; native Release build,
+all four protected sessions and `git diff --check` passed. The final staging and
+process checks were clear. Original artifacts and failed hypotheses remain
+unchanged.
+
 ## 2026-09-07 - Controller CLI and protected controlled recording/replay
 
 Resumed the two approved steps. Added the 32 Hz controller schema export and

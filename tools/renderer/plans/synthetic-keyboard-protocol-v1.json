@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "profile": "cs2-synthetic-keyboard-response-protocol-v1",
+  "plan_sha256": "c8b3343e21125923ace8b3a8d2fcf628b862bcd13f0bfa7afc99269541199fb5",
+  "command_edge_window_relative_to_observed_last_processed": [
+    -2,
+    16
+  ],
+  "ordinary_phase_tail_ticks": 16,
+  "jump_phase_tail_ticks": 96,
+  "reload_phase_tail_ticks": 144,
+  "movement_minimum_displacement_units": 0.25,
+  "movement_minimum_horizontal_speed": 1.0,
+  "duck_minimum_amount_change": 0.05,
+  "jump_minimum_vertical_speed": 1.0,
+  "training_ready": false,
+  "exact_input_timing_verified": false,
+  "input_consumption_mapping_verified": false,
+  "mouse_button_left_mask_hypothesis": 1,
+  "key_mask_hypotheses": {
+    "W": 8,
+    "S": 16,
+    "A": 512,
+    "D": 1024,
+    "LCTRL": 4,
+    "SPACE": 2,
+    "R": 8192
+  },
+  "hypothesis_basis": "Scoped prior console probe raw fields; synthetic gameplay bindings and effects must be measured independently",
+  "clock_association": "Observed native last-processed command N and controller tick E matched to canonical N/E; bounded neighborhoods are not exact consumption assignments"
+}
