@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 
 
@@ -36,7 +37,17 @@ def save_settings(path: Path, value: dict) -> None:
     temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         temp.write_bytes((json.dumps(value, indent=2, allow_nan=False) + "\n").encode("utf-8"))
-        os.replace(temp, path)
+        # Windows readers and background file scanners can briefly hold a file
+        # without delete sharing. Keep the new snapshot intact and retry the
+        # atomic replace; never truncate the visible queue/progress document.
+        for attempt in range(20):
+            try:
+                os.replace(temp, path)
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == 19:
+                    raise
+                time.sleep(.05)
     finally:
         temp.unlink(missing_ok=True)
 
@@ -290,6 +301,8 @@ def prepare_sources(task: TaskRunner, demos: list[Path], match_id="") -> Path:
         task.emit("prepared", {"demo": str(demo), "parsed": str(parsed),
                                "quality_passed": validation["passed"]})
     path = task.run_dir / "sources.json"
+    if path.exists():
+        path = task.run_dir / ("sources-"+uuid.uuid4().hex[:12]+".json")
     with path.open("x", encoding="utf-8", newline="\n") as stream:
         json.dump({"schema_version": 1, "profile": SOURCE_PROFILE, "sources": sources}, stream, indent=2)
         stream.write("\n")
@@ -464,17 +477,24 @@ def _add_capture_policy_display(path, plan, summary):
             continue
 
 
-def capture_arguments(task, plan):
-    path, doc, _ = read_batch_display(plan)
-    tools = {"plugin": task.project / "tools/renderer/build/plugin-windows/Release/server.dll"}
+def renderer_tools(project):
+    """Use the same bundled binaries in the UI and in-process queue stages."""
+    project = Path(project)
+    tools = {"plugin": project / "tools/renderer/build/plugin-windows/Release/server.dll"}
     for name in ("ffmpeg", "ffprobe"):
-        matches = sorted((task.project / ".tools/ffmpeg").glob(f"*/bin/{name}.exe"))
+        matches = sorted((project / ".tools/ffmpeg").glob(f"*/bin/{name}.exe"))
         if not matches:
             raise ValueError(f"Bundled {name} is missing; see docs/WINDOWS_RENDERING.md.")
         tools[name] = matches[-1]
     for name, file in tools.items():
         if not file.is_file():
             raise ValueError(f"Missing renderer {name}: {file}")
+    return tools
+
+
+def capture_arguments(task, plan):
+    path, doc, _ = read_batch_display(plan)
+    tools = renderer_tools(task.project)
     ticks = doc.get("clip_ticks")
     if type(ticks) is not int or not 32 <= ticks <= 1280 or ticks % 2:
         raise ValueError("The batch has an unsupported clip length.")

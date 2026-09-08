@@ -217,6 +217,22 @@ def test_capture_bound_cannot_be_widened_by_legacy_or_invalid_limits(tmp_path, p
         worker.validate_job(original, max_ticks=ticks)
 
 
+def test_full_demo_profile_runs_two_minutes_only_at_decided_format(tmp_path):
+    source = job_fixture(tmp_path)
+    source.update(competitive_replay_profile=worker.COMPETITIVE_PROFILE,
+                  full_demo_profile=worker.FULL_DEMO_PROFILE,
+                  end_demo_tick=source["start_demo_tick"]+7680)
+    effective = worker.validate_job(source, max_ticks=7680)
+    assert effective["end_demo_tick"] == source["end_demo_tick"]
+    assert len(worker.make_sequence(effective, 0)) == 1
+    for changed in ({"width": 1280, "height": 720}, {"fps": 64}, {"full_demo_profile": "unknown"}):
+        with pytest.raises(ValueError):
+            worker.validate_job({**source, **changed}, max_ticks=7680)
+    del source["full_demo_profile"]
+    with pytest.raises(ValueError, match="max-ticks"):
+        worker.validate_job(source, max_ticks=7680)
+
+
 @pytest.mark.parametrize("ticks,fps", [(640, 32), (1280, 32), (1280, 64)])
 def test_current_long_capture_disk_budget_holds_all_bgra_frames(tmp_path, monkeypatch, ticks, fps):
     original = job_fixture(tmp_path)

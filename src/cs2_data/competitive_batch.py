@@ -33,6 +33,8 @@ MAX_JOBS = 24
 MAX_SOURCES = 8
 MAX_SELECTIONS = 16
 MAX_CLIP_TICKS = 1280
+FULL_DEMO_PROFILE = "cs2-full-player-demo-v1"
+MAX_FULL_DEMO_TICKS = 7680
 PATH_FIELDS = ("parsed", "demo", "phase_manifest", "network_clock", "state_context")
 
 
@@ -220,7 +222,10 @@ def load_batch_plan(path):
     raw = path.read_bytes(); plan = json.loads(raw.decode("utf-8-sig"))
     _require(plan.get("schema_version") == 1 and plan.get("profile") == PROFILE and plan.get("stage_order") == list(STAGES),
              "Unsupported competitive batch plan")
-    _require(type(plan.get("clip_ticks")) is int and 32 <= plan["clip_ticks"] <= MAX_CLIP_TICKS and plan["clip_ticks"] % 2 == 0,
+    full_demo = plan.get("full_demo_profile") == FULL_DEMO_PROFILE
+    _require("full_demo_profile" not in plan or full_demo, "Unsupported full-demo profile")
+    clip_limit = MAX_FULL_DEMO_TICKS if full_demo else MAX_CLIP_TICKS
+    _require(type(plan.get("clip_ticks")) is int and 32 <= plan["clip_ticks"] <= clip_limit and plan["clip_ticks"] % 2 == 0,
              "Invalid batch clip bound")
     _require(isinstance(plan.get("jobs"), list) and 1 <= len(plan["jobs"]) <= MAX_JOBS, "Invalid batch job count")
     _verify_hashes(plan["files"])
@@ -236,7 +241,8 @@ def load_batch_plan(path):
         _require(sha256_file(spec) == item["spec_sha256"] == plan["files"].get(str(spec)) and
                  _bytes(read_json(spec)) == _bytes(job), "Planned job differs from its retained spec")
         _require(job.get("competitive_replay_profile") == CURRENT_PROFILE and "calibration_replay_profile" not in job and
-                 job.get("fps") == 32 and job.get("width") == 1280 and job.get("height") == 720 and
+                 job.get("fps") == 32 and (job.get("width"), job.get("height")) == ((640, 360) if full_demo else (1280, 720)) and
+                 (job.get("full_demo_profile") == FULL_DEMO_PROFILE if full_demo else "full_demo_profile" not in job) and
                  type(job.get("start_demo_tick")) is int and job["start_demo_tick"] >= 199 and
                  type(job.get("end_demo_tick")) is int and job["end_demo_tick"]-job["start_demo_tick"] == plan["clip_ticks"],
                  "Planned job bypasses bounded competitive rendering")
@@ -404,9 +410,12 @@ def _perform_stage(stage, out, source, item, parents, options):
         # The standalone worker's default patch is historical. This fixed
         # selection still enforces its current eight-DLL hashes before launch.
         capture_ticks = item["job"]["end_demo_tick"] - item["job"]["start_demo_tick"]
-        _require(type(capture_ticks) is int and 32 <= capture_ticks <= MAX_CLIP_TICKS and capture_ticks % 2 == 0,
+        clip_limit = MAX_FULL_DEMO_TICKS if item["job"].get("full_demo_profile") == FULL_DEMO_PROFILE else MAX_CLIP_TICKS
+        _require(type(capture_ticks) is int and 32 <= capture_ticks <= clip_limit and capture_ticks % 2 == 0,
                  "Protected batch capture exceeds its bounded tick interval")
         arguments = ["--spec", item["spec"], "--output", str(out), "--execute", "--max-ticks", str(capture_ticks), "--allow-version-mismatch"]
+        if item["job"].get("full_demo_profile") == FULL_DEMO_PROFILE:
+            arguments += ["--timeout", str(max(600, capture_ticks / 64 * 10 + 300))]
         for name in ("game_dir", "plugin", "ffmpeg", "ffprobe", "steam_dir", "steam_user_id"):
             if options.get(name) is not None:
                 arguments.extend(("--"+name.replace("_", "-"), str(options[name])))
@@ -481,6 +490,8 @@ def _run(root, plan, digest, *, execute, max_jobs, retry_failed, options):
                             "perform_calls": 0, "verify_calls": 0} for stage in STAGES}
 
     def measured(operation, stage, *args):
+        if options.get("progress"):
+            options["progress"](stage, operation)
         before = time.perf_counter()
         try:
             return (_perform_stage if operation == "perform" else _verify_stage)(stage, *args)
@@ -576,11 +587,12 @@ def _run(root, plan, digest, *, execute, max_jobs, retry_failed, options):
 
 
 def run_batch(plan_dir: Path, *, execute=False, max_jobs=3, retry_failed=False,
-              game_dir=None, plugin=None, ffmpeg=None, ffprobe=None, steam_dir=None, steam_user_id=None):
+              game_dir=None, plugin=None, ffmpeg=None, ffprobe=None, steam_dir=None, steam_user_id=None, progress=None):
     _require(type(execute) is bool and type(retry_failed) is bool and type(max_jobs) is int and 1 <= max_jobs <= MAX_JOBS,
              "Invalid bounded batch execution options")
     path, plan, digest = load_batch_plan(plan_dir); root = path.parent
-    options = dict(game_dir=game_dir, plugin=plugin, ffmpeg=ffmpeg, ffprobe=ffprobe, steam_dir=steam_dir, steam_user_id=steam_user_id)
+    _require(progress is None or callable(progress), "Batch progress callback must be callable")
+    options = dict(game_dir=game_dir, plugin=plugin, ffmpeg=ffmpeg, ffprobe=ffprobe, steam_dir=steam_dir, steam_user_id=steam_user_id, progress=progress)
     previous_path = os.environ.get("PATH", "")
     try:
         if ffmpeg:

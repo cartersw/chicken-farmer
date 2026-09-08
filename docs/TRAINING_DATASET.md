@@ -14,6 +14,10 @@ temporal examples and background prefetching. Train this profile first and
 revisit the format only if learning progress warrants it; no alternative-format
 comparisons are scheduled. These are planned trainer settings; this loader
 still defaults to native RGB resolution and has no compressed-frame cache.
+The new [full-demo pipeline](FULL_DEMO_PROCESSING.md) separately publishes RGB8
+training shards and provides `training_archive.RGBFrameCache` for bounded lazy
+decompression and frame reuse. It preserves the accepted sample/target contract;
+the corpus scheduler and complete trainer integration are still pending.
 
 ## Tensor interface
 

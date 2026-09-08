@@ -3,17 +3,20 @@
 Track completed work, current blockers, and the next milestones in [docs/progress](docs/progress/README.md).
 
 **Desktop launcher:** double-click [Launch Demo Processor.cmd](Launch%20Demo%20Processor.cmd)
-to browse demo folders, prepare source data, choose a player POV, plan sample captures and run/resume
-one protected clip at a time. It uses the existing local Python environment.
+to browse demo folders, select a player and queue an entire demo for automatic
+preprocessing, capture and lossless compression. The [full-demo workflow](docs/FULL_DEMO_PROCESSING.md)
+includes normal round progression and reports excluded time. Sample captures
+remain available. It uses the existing local Python environment.
 See the [desktop app guide](docs/DESKTOP_APP.md) for the workflow and limits.
 For ordinary round progression, the [consecutive-round collector](docs/ROUND_COLLECTION.md)
 plans chronological player footage with explicit tails, budgets and resumable capture.
 
 The [decided trainer baseline](docs/TRAINER_DESIGN.md) is **640x360, full-color
 RGB, 8 bits per channel, with eight consecutive frames at 32 FPS**. Loading uses
-planned rolling decompression, bounded frame reuse and background prefetching.
+rolling decompression and bounded frame reuse; background prefetching is planned.
 Train this baseline first; revisit the format only if learning is not progressing
-and the evidence warrants an adjustment. The cache and trainer remain to be implemented.
+and the evidence warrants an adjustment. The compressed RGB archive/cache reader
+is implemented; the chunk scheduler and trainer remain to be implemented.
 
 The [32 Hz executor and scoped label builder](docs/CONTROL_EXECUTION.md)
 connect angular actions to protected Windows keyboard/mouse input. A real

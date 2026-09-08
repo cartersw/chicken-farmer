@@ -3,8 +3,10 @@
 Updated 2026-09-08. The user decided on **640x360, full-color RGB, 8 bits per
 channel, eight consecutive frames at 32 FPS, with rolling decompression,
 frame reuse and background prefetching**. This is the agreed trainer baseline.
-This document records the implementation plan; it does not implement a trainer,
-change captures, or claim model results.
+This document records the trainer plan and does not claim model results.
+The [full-demo queue](FULL_DEMO_PROCESSING.md) now captures this baseline directly
+and implements compressed RGB shards plus a bounded lazy frame cache. The trainer
+and background prefetch scheduler remain future work.
 The implemented interface remains [TRAINING_DATASET.md](TRAINING_DATASET.md).
 For this baseline, this design supersedes the original handoff's example input
 sizes, strided histories, previous-action inputs and MP4-first storage suggestion.
@@ -37,7 +39,10 @@ checkpoint: source RGB decoder/orientation, source and destination dimensions,
 color conversion, interpolation, antialiasing, rounding, normalization, and
 implementation versions. The same transform must run at inference.
 
-For the baseline, decode top-first RGB, convert a frame to float32 in [0,1],
+New full-demo captures already have the decided 640x360 dimensions: decode
+top-first RGB, discard alpha, and store the exact RGB8 bytes without resizing.
+Normalize by 255 when executing a batch. For a future migration of larger
+legacy captures, decode top-first RGB, convert a frame to float32 in [0,1],
 resize with bilinear interpolation (`align_corners=false`, `antialias=true`),
 clamp to [0,1], multiply by 255, round to nearest with ties to even, and store
 uint8. Normalize the prepared batch by 255 at execution. This intentionally
@@ -105,7 +110,7 @@ images are needed, versus 8B loads in the current uncached loader. Cache hits
 avoid repeated decoding; prefetch hides remaining preparation only when worker
 throughput keeps up with model consumption. Startup and queue starvation can
 still cause waits. PyTorch provides loader workers, persistent workers and batch
-prefetching; chunk scheduling and frame caching remain our implementation work
+prefetching; chunk scheduling and background integration remain implementation work
 ([PyTorch 2.8 DataLoader](https://docs.pytorch.org/docs/2.8/data.html)).
 
 ## Initial resource controls
@@ -202,5 +207,7 @@ do not silently vary the baseline between runs.
 - Measure the complete loading-plus-model path before claiming hidden decode
   latency or a training speedup. Record resource settings and startup costs.
 
-These checks are planned work. No trainer, cache, archive migration or
-model-accuracy experiment was implemented by this design update.
+The RGB archive/cache tests now verify lossless pixels, preserved labels/masks,
+overlapping-frame reuse, byte-budget eviction and corruption failures. Complete
+trainer scheduling, asynchronous prefetch, legacy migration and model accuracy
+checks remain planned work.

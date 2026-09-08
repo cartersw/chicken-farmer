@@ -2,11 +2,14 @@
 
 This folder tracks completed work, verification, blockers, and the remaining CS2 vision imitation-learning milestones.
 
-**New desktop interface:** [Demo Processor](../DESKTOP_APP.md) provides folder
-selection, source preparation, named player POV selection, bounded capture planning, live logs and one-clip
-run/resume controls. It reuses the existing pipeline and game-restoration
-requirements. Sample durations are 5, 10 or 20 seconds, with
-10 seconds the default. The full-player scheduler remains proposed.
+**New full-demo queue:** [Demo Processor](../DESKTOP_APP.md) now queues a complete
+demo for one named player, preprocesses all eligible rounds, captures them
+automatically and publishes lossless 640x360 RGB8 training/evidence archives.
+Eight-frame histories at 32 FPS remain the baseline. Coverage reports, bounded
+rolling RGB decompression, persistent stop/resume and verified raw-work cleanup
+are implemented. See [full-demo processing](../FULL_DEMO_PROCESSING.md).
+Legacy sample durations remain 5, 10 or 20 seconds; those controls do not limit
+full-demo processing. The complete trainer remains pending.
 
 **Current policy:** the user approved the current capture HUD setup after
 viewing the nine clips. Routine processing uses that fixed setup without

@@ -83,6 +83,34 @@ def test_scan_remains_responsive_and_populates_selection(ui):
     assert not ui.demo_tree.get_children() and not ui.demos
 
 
+def test_full_demo_requires_named_player_and_persists_decided_format(ui, monkeypatch):
+    from cs2_data import full_demo
+    demo = populate(ui)
+    ui.enqueue_demo()
+    assert ui.test_errors and not ui.queue_path().exists()
+    ui.test_errors.clear()
+    ui.players = {"Ckanic": "76561198323592528"}
+    ui.player.set("Ckanic")
+    ui.enqueue_demo()
+    assert not ui.test_errors
+    queued = full_demo.load_queue(ui.queue_path())["jobs"]
+    assert len(queued) == 1 and queued[0]["demo"] == str(demo.resolve())
+    assert queued[0]["format"] == full_demo.FORMAT
+    assert ui.tabs.select() == str(ui.queue_tab)
+    calls = []
+    def run(task, path):
+        calls.append(path)
+        task.emit("queue", str(path))
+        return {"completed_demos": 0}
+    monkeypatch.setattr(full_demo, "run_queue", run)
+    ui.process_queue()
+    assert ui.busy and ui.stop_button.instate(["!disabled"])
+    pump(ui.root, lambda: not ui.busy)
+    assert calls == [ui.queue_path()] and not ui.test_errors
+    ui.refresh_queue()
+    assert len(ui.queue_tree.get_children()) == 1
+
+
 def test_status_and_stop_stay_visible_at_minimum_window_size(ui):
     ui.root.geometry("1000x760")
     ui.root.deiconify()

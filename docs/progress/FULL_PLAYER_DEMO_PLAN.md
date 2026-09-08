@@ -1,5 +1,13 @@
 # Full player POV feasibility and proposed run
 
+**Superseded implementation status (2026-09-08):** the
+[full-demo queue](../FULL_DEMO_PROCESSING.md) is now implemented in the desktop
+app. It uses the decided 640x360 RGB8/32 FPS profile, exhaustive eligible-window
+coverage, up-to-two-minute captures, overlapping histories, compression and
+persistent resume. The old 720p storage estimates and proposed limits below are
+historical. The real Ckanic/Dust2 plan contains 26 segments owning 1,889.375
+seconds, with 0.15625 seconds of explicit odd-tick exclusions.
+
 Updated: 2026-09-08. Selected by the user: **Ckanic on Dust2**,
 Steam ID `76561198323592528`, source demo SHA-256
 `f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773`.

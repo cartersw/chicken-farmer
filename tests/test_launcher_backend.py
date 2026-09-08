@@ -267,6 +267,25 @@ def test_interrupted_launcher_settings_do_not_leave_partial_json(tmp_path):
     assert list(tmp_path.iterdir()) == [path]
 
 
+def test_transient_windows_reader_lock_does_not_lose_queue_update(tmp_path, monkeypatch):
+    if app.os.name != "nt":
+        pytest.skip("Windows sharing behavior")
+    path = tmp_path/"queue.json"
+    app.save_settings(path, {"status": "before"})
+    replace, calls = app.os.replace, []
+    def locked_once(source, target):
+        calls.append(target)
+        assert app.read_object(path) == {"status": "before"}
+        if len(calls) == 1:
+            raise PermissionError("temporary sharing violation")
+        return replace(source, target)
+    monkeypatch.setattr(app.os, "replace", locked_once)
+    monkeypatch.setattr(app.time, "sleep", lambda seconds: None)
+    app.save_settings(path, {"status": "after"})
+    assert len(calls) == 2 and app.read_object(path) == {"status": "after"}
+    assert list(tmp_path.iterdir()) == [path]
+
+
 @pytest.mark.parametrize("change", [
     lambda plan: plan["jobs"].append(plan["jobs"][0].copy()),
     lambda plan: plan["jobs"][0].update(job_id="../other"),

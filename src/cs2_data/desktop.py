@@ -16,6 +16,7 @@ from tkinter.scrolledtext import ScrolledText
 from . import launcher_backend as backend
 
 AUTO_PLAYER = "Automatic player selection"
+TRAINING_PRESET = "640×360 · RGB · 8 bits/channel · 32 FPS · lossless compression"
 
 
 @contextmanager
@@ -89,12 +90,15 @@ class DemoLauncher:
         self.selection_text = tk.StringVar(value="Choose a folder, then select the demos to prepare.")
         self.batch_text = tk.StringVar(value="Load an existing batch or plan sample captures from the Demos tab.")
         self.player = tk.StringVar(value=AUTO_PLAYER)
+        self.output_preset = tk.StringVar(value=TRAINING_PRESET)
+        self.queue_text = tk.StringVar(value="Queue one demo and player at a time, then start automatic processing.")
         self.player_note = tk.StringVar(value="Load players to choose a POV. Missing source data will be prepared first.")
         root.title("Chicken Farmer - Demo Processing")
         root.geometry("1120x880")
         root.minsize(1000, 760)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._build()
+        self.refresh_queue()
         self._update_disk()
         self._poll_token = root.after(100, self._drain)
         if self.plan_path.get():
@@ -105,10 +109,11 @@ class DemoLauncher:
         if auto_scan:
             root.after(200, self.scan)
 
-    def _button(self, parent, label, command, **pack):
+    def _button(self, parent, label, command, *, while_busy=False, **pack):
         widget = ttk.Button(parent, text=label, command=command)
         widget.pack(**pack)
-        self.controls.append(widget)
+        if not while_busy:
+            self.controls.append(widget)
         return widget
 
     def _build(self):
@@ -149,9 +154,11 @@ class DemoLauncher:
         self.tabs.grid(row=3, column=0, sticky="nsew", pady=(14, 10))
         demos_tab = ttk.Frame(self.tabs, padding=12)
         self.capture_tab = ttk.Frame(self.tabs, padding=12)
+        self.queue_tab = ttk.Frame(self.tabs, padding=12)
         self.tabs.add(demos_tab, text="  Demos  ")
+        self.tabs.add(self.queue_tab, text="  Demo queue  ")
         self.tabs.add(self.capture_tab, text="  Capture batches  ")
-        for tab in (demos_tab, self.capture_tab):
+        for tab in (demos_tab, self.capture_tab, self.queue_tab):
             tab.columnconfigure(0, weight=1)
             tab.rowconfigure(1, weight=1)
 
@@ -172,7 +179,7 @@ class DemoLauncher:
         series = ttk.Entry(options, textvariable=self.series, width=28)
         series.pack(side="left", padx=(8, 18))
         self.controls.append(series)
-        for label, variable, values in (("Clips", self.clips, (1, 2, 4, 8)), ("Seconds / clip", self.seconds, (5, 10, 20))):
+        for label, variable, values in (("Sample clips", self.clips, (1, 2, 4, 8)), ("Seconds / sample", self.seconds, (5, 10, 20))):
             ttk.Label(options, text=label).pack(side="left", padx=(0, 6))
             combo = ttk.Combobox(options, textvariable=variable, values=values, state="readonly", width=4)
             combo.pack(side="left", padx=(0, 14))
@@ -195,8 +202,29 @@ class DemoLauncher:
         self._button(actions, "Prepare source data", lambda: self.prepare(False), side="left")
         self._button(actions, "Plan sample captures", lambda: self.prepare(True), side="left", padx=8)
         self._button(actions, "Open source results", self.open_source, side="right")
-        ttk.Label(demos_tab, text="Planning checks eligible competitive play for the selected POV. Capture starts separately.",
-                  style="Subtle.TLabel").grid(row=6, column=0, sticky="w", pady=(8, 0))
+        full = ttk.Frame(demos_tab)
+        full.grid(row=6, column=0, sticky="ew", pady=(10, 0))
+        preset = ttk.Combobox(full, textvariable=self.output_preset, values=(TRAINING_PRESET,), state="readonly", width=66)
+        preset.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.controls.append(preset)
+        self._button(full, "Queue entire demo", self.enqueue_demo, side="right")
+        ttk.Label(demos_tab, text="Entire demo: select one demo and a named player. Eight-frame histories; eligible rounds run automatically.",
+                  style="Subtle.TLabel", wraplength=900).grid(row=7, column=0, sticky="w", pady=(6, 0))
+
+        ttk.Label(self.queue_tab, text="Entire demo → preprocessing → eligible player rounds → compressed training data",
+                  style="Subtle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        self.queue_tree = self._tree(self.queue_tab, ("Demo", "Player", "Status", "Segments", "Accepted examples"),
+                                    (350, 210, 155, 100, 145), height=6)
+        ttk.Label(self.queue_tab, textvariable=self.queue_text, style="Subtle.TLabel", wraplength=930).grid(row=2, column=0, sticky="w", pady=8)
+        queue_bar = ttk.Frame(self.queue_tab)
+        queue_bar.grid(row=3, column=0, sticky="ew")
+        self._button(queue_bar, "Start / resume queue", self.process_queue, side="left")
+        self._button(queue_bar, "Refresh queue", self.refresh_queue, while_busy=True, side="left", padx=8)
+        self._button(queue_bar, "Open coverage report", self.open_queue_report, while_busy=True, side="right")
+        self._button(queue_bar, "Open output", lambda: self.open_path(self.queue_path().parent), while_busy=True, side="right", padx=8)
+        ttk.Label(self.queue_tab, text="Runs continuously across all eligible rounds. Internal segments last up to two minutes.\n"
+                  "Dead time, pauses and setup are excluded and reported. Stop finishes the current segment, compression and cleanup.",
+                  style="Subtle.TLabel", wraplength=930).grid(row=4, column=0, sticky="w", pady=(10, 0))
 
         bar = ttk.Frame(self.capture_tab)
         bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
@@ -220,7 +248,7 @@ class DemoLauncher:
         bar.grid(row=4, column=0, sticky="ew")
         ttk.Label(bar, text="Activity", font=("Segoe UI", 10, "bold")).pack(side="left")
         ttk.Button(bar, text="Open last run", command=lambda: self.open_path(self.run_dir)).pack(side="right")
-        self.log_widget = ScrolledText(main, height=7, background="#152032", foreground="#dbe7f5",
+        self.log_widget = ScrolledText(main, height=3, background="#152032", foreground="#dbe7f5",
                                       insertbackground="white", font=("Consolas", 9), wrap="word", relief="flat", padx=10, pady=8)
         self.log_widget.grid(row=5, column=0, sticky="ew", pady=(6, 8))
         self.log_widget.configure(state="disabled")
@@ -258,6 +286,8 @@ class DemoLauncher:
     def _output_changed(self):
         self._update_disk()
         self._reset_players()
+        if hasattr(self, "queue_tree"):
+            self.refresh_queue()
 
     def _reset_players(self):
         self.players.clear()
@@ -267,7 +297,7 @@ class DemoLauncher:
 
     def _player_changed(self, _event=None):
         steam_id = self.players.get(self.player.get())
-        self.player_note.set(f"Sample captures will use only Steam ID {steam_id}. Eligibility is checked when planning."
+        self.player_note.set(f"Captures and full-demo processing will use only Steam ID {steam_id}."
                              if steam_id else "The planner will choose players across the selected demos.")
 
     def _save(self):
@@ -275,6 +305,68 @@ class DemoLauncher:
             "recursive": self.recursive.get(), "series_id": self.series.get(), "clips": self.clips.get(),
             "clip_seconds": self.seconds.get(), "batch_path": self.plan_path.get(),
             "last_run": str(self.run_dir) if self.run_dir else ""})
+
+    def queue_path(self):
+        return Path(self.output.get()).expanduser().resolve()/"full-demo-queue/queue.json"
+
+    def enqueue_demo(self):
+        if self.busy:
+            return
+        selected = [self.demos[key].path for key in self.demo_tree.selection()]
+        steam_id = self.players.get(self.player.get())
+        if len(selected) != 1 or steam_id is None or tuple(str(p) for p in selected) != self.player_selection:
+            self.error("Select exactly one demo, load its players, and choose a named player first.")
+            return
+        if self.output_preset.get() != TRAINING_PRESET or not self.output.get().strip():
+            self.error("Choose the 640×360 RGB output preset and an output folder.")
+            return
+        try:
+            from .full_demo import enqueue
+            enqueue(self.queue_path(), selected[0], steam_id, self.player.get().split("  |  ")[0], match_id=self.series.get().strip())
+            self._save(); self.refresh_queue(); self.tabs.select(self.queue_tab)
+            self.status.set("Entire demo queued - ready to start")
+        except (OSError, ValueError) as error:
+            self.error(str(error))
+
+    def refresh_queue(self):
+        try:
+            from .full_demo import load_queue
+            doc = load_queue(self.queue_path())
+            selected = self.queue_tree.selection()
+            self.queue_tree.delete(*self.queue_tree.get_children())
+            for job in doc["jobs"]:
+                self.queue_tree.insert("", "end", iid=job["id"], values=(Path(job["demo"]).name, job["player_name"],
+                    job["status"].replace("_", " "), f"{job.get('completed_segments',0)}/{job.get('segment_count',0) or '—'}",
+                    f"{job.get('accepted_samples',0):,}"))
+            self.queue_tree.selection_set([key for key in selected if self.queue_tree.exists(key)])
+            self.queue_text.set(f"{len(doc['jobs'])} demos · 640×360 RGB8 · 32 FPS · lossless training shards and evidence archives. "
+                                "Completed segments resume without recapture.")
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            self.queue_text.set("Queue needs attention: "+str(error))
+
+    def process_queue(self):
+        try:
+            from .full_demo import load_queue, run_queue
+            path = self.queue_path()
+            doc = load_queue(path)
+            if not any(job["status"] not in ("complete", "cancelled") for job in doc["jobs"]):
+                self.error("Queue a demo and player first. Completed demos are already retained.")
+                return
+            self._start("full-demo", lambda task: run_queue(task, path))
+        except (OSError, ValueError) as error:
+            self.error(str(error))
+
+    def open_queue_report(self):
+        selected = self.queue_tree.selection()
+        if len(selected) != 1:
+            self.error("Select one queued demo to open its coverage report.")
+            return
+        try:
+            from .full_demo import load_queue
+            job = next(row for row in load_queue(self.queue_path())["jobs"] if row["id"] == selected[0])
+            self.open_path(Path(job["report"]) if job.get("report") else None)
+        except (OSError, ValueError, KeyError, StopIteration) as error:
+            self.error(str(error))
 
     def browse_folder(self, variable):
         selected = filedialog.askdirectory(parent=self.root, initialdir=variable.get() or str(self.project))
@@ -532,6 +624,8 @@ class DemoLauncher:
             elif kind == "status":
                 if not self.stop.is_set():
                     self.status.set(value)
+            elif kind == "queue":
+                self.refresh_queue()
             elif kind == "run":
                 self.run_dir = Path(value)
                 self._log("Run folder: " + value)
@@ -583,6 +677,8 @@ class DemoLauncher:
             self._log(value.get("error", "Task did not complete."))
             if value["kind"] == "capture":
                 self.refresh_batch()
+            if value["kind"] == "full-demo":
+                self.refresh_queue()
             return
         if result.get("batch_plan"):
             try:
@@ -593,7 +689,14 @@ class DemoLauncher:
                 self.status.set("Needs attention - could not load the batch")
                 self._log(str(error))
                 return
-        if value["kind"] == "capture":
+        if value["kind"] == "full-demo":
+            self.refresh_queue()
+            status = result.get("status")
+            self.status.set("Queue stopped after current segment" if self.stop.is_set() or status == "stopped" else
+                            "Queue paused: low disk space - free space, then resume" if status == "paused_low_disk" else
+                            "Queue complete - open the coverage report" if status == "complete" else
+                            "Queue run finished - see demo statuses and coverage reports")
+        elif value["kind"] == "capture":
             rows = result.get("summary", {}).get("jobs", [])
             ready = any(row.get("display_status", row.get("status")) == "ready_for_acceptance" for row in rows)
             self.status.set("Capture recorded - ready for acceptance" if ready else "Capture task finished - see recorded batch status")
@@ -610,7 +713,7 @@ class DemoLauncher:
                 previous = self.player.get()
                 self.player_combo.configure(values=(AUTO_PLAYER, *self.players))
                 self.player.set(previous if previous in self.players else AUTO_PLAYER)
-                self.player_note.set("Choose a player above, then plan sample captures. Names are from the recorded demos.")
+                self.player_note.set("Choose a player above, then queue the entire demo or plan sample captures.")
                 self.status.set(f"Loaded {len(self.players)} players - choose a POV")
             else:
                 self._reset_players()

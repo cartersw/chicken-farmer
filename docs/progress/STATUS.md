@@ -1,6 +1,29 @@
 # Current implementation status
 
-**Latest work (2026-09-08): trust the approved capture HUD setup.**
+**Latest work (2026-09-08): entire-demo desktop processing.**
+The [full-demo queue](../FULL_DEMO_PROCESSING.md) selects one demo/player per
+entry, reuses or prepares source data, plans all eligible alive round progression,
+then automatically captures, numerically accepts and losslessly compresses each
+segment. The fixed preset is 640x360 RGB8 at 32 FPS with eight-frame histories.
+The source timeline is fully accounted for, with explicit exclusion intervals,
+short-tail handling and seven-frame overlap at internal segment boundaries.
+Accepted action targets are deduplicated across segments. Completed archives
+are retained while new raw work is released after verification. Persistent
+resume and a bounded RGB frame cache are implemented; model training and its
+background batch scheduler are still pending.
+
+The real Ckanic/Dust2 plan owns 1,889.375 seconds across 26 automatic segments.
+The first real 86.75-second segment produced 2,776 frames and 2,755 accepted
+examples, with 21 candidates rejected for recorded numerical reasons. The
+compressed RGB pixels match the original TGA, temporary work was released, and
+the queue automatically started segment 2. The rolling reader used nine decodes
+for two adjacent eight-frame histories. See the [UI smoke evidence](../../data/validation/full-demo-ui-001/README.md).
+Full-demo completion is recorded in its mutable queue/progress journals, not
+asserted by this document.
+The final focused backend, renderer, archive and Windows Tk UI suites pass
+**238 tests**; their results are retained with the smoke evidence.
+
+**Previous work: trust the approved capture HUD setup.**
 The user viewed the nine round-progression clips, said they look fine, and
 explicitly chose to trust the current setup without recurring manual review,
 overlay detectors or spot checks. Routine batches now use a small policy receipt

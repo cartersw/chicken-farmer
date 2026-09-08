@@ -48,6 +48,8 @@ HUD_COMMANDS = [
 ]
 MAX_PILOT_TICKS = 320
 MAX_COMPETITIVE_TICKS = 1280
+FULL_DEMO_PROFILE = "cs2-full-player-demo-v1"
+MAX_FULL_DEMO_TICKS = 7680
 MOD_RE = re.compile(r"chicken-render-[0-9a-f]{32}\Z")
 SETTINGS_SELECTORS = {
     "steam_local_cfg": ["cs2_*.vcfg", "cs2_*.vcfg_lastclouded", "cs2_video.txt", "cs2_video.txt.bak", "*.cfg"],
@@ -328,6 +330,12 @@ def validate_job(job: dict[str, Any], *, max_ticks: int = MAX_PILOT_TICKS) -> di
     if job["width"] * 9 != job["height"] * 16:
         raise ValueError("The inspected native HUD profile requires a 16:9 image")
     capture_limit = MAX_COMPETITIVE_TICKS if job.get("competitive_replay_profile") == COMPETITIVE_PROFILE else MAX_PILOT_TICKS
+    if "full_demo_profile" in job:
+        if (job["full_demo_profile"] != FULL_DEMO_PROFILE or
+                job.get("competitive_replay_profile") != COMPETITIVE_PROFILE or
+                (job["width"], job["height"], job["fps"]) != (640, 360, 32)):
+            raise ValueError("Full-demo captures require the 640x360 RGB / 32 FPS competitive profile")
+        capture_limit = MAX_FULL_DEMO_TICKS
     if type(max_ticks) is not int or not 4 <= max_ticks <= capture_limit:
         raise ValueError(f"This replay profile supports --max-ticks between 4 and {capture_limit}")
     demo = Path(job.get("demo_path", "")).resolve()

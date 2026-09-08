@@ -17,6 +17,46 @@ is not required for the double-click launcher.
 
 ## Demos
 
+### Process an entire demo for one player
+
+1. Select one demo and click **Load players**. Select the named player in
+   **Player POV**. Missing source tables and phase/context data are prepared
+   automatically; current verified tables are reused.
+2. Keep the output preset **640x360, RGB, 8 bits/channel, 32 FPS, lossless
+   compression** and choose the **Output** folder. Histories contain eight
+   consecutive frames. The sample clip count/duration controls do not affect
+   this preset or full-demo coverage.
+3. Click **Queue entire demo**. Repeat for other demo/player entries if needed.
+4. In **Demo queue**, click **Start / resume queue** once. Preprocessing discovers
+   all eligible rounds for that player, then capture, numerical acceptance and
+   compression continue automatically through the queue.
+5. **Open coverage report** shows planned intervals, excluded time, completion,
+   accepted examples, rejected examples and their reason counts.
+
+The queue includes ordinary alive round progression and combat. It excludes
+setup/warmup, freeze time, pauses, dead time and unsupported source intervals.
+Capture segments last up to two minutes and stop at eligibility boundaries;
+they are internal work units and require no manual advance or HUD review.
+Overlapping history at internal splits is deduplicated by action target identity.
+Short final tails are redistributed rather than discarded. All exclusions are
+recorded. See [FULL_DEMO_PROCESSING.md](FULL_DEMO_PROCESSING.md) for exact rules.
+
+The persistent queue is `<Output>/full-demo-queue/queue.json`. Each entry has a
+coverage report and progress journal under `jobs/<id>/`. Completed segments
+retain lossless `training.zip` and `evidence.zip` packages; their temporary raw
+working files and staged demo copy are released only after archive verification.
+The original demo and shared parsed source are retained. Changing Output selects
+another queue; returning to the original folder restores its entries.
+
+**Stop after current step** finishes the current full-demo segment, including
+acceptance, compression and cleanup, before stopping. Closing the busy launcher
+requests that same graceful stop. Reopen it and use **Start / resume queue** to
+continue. Completed segments are verified and skipped. Low disk space pauses
+before the next capture; source or processing failures retain their journal and
+show **needs attention**. A running queue uses one CS2 instance at a time.
+
+### Prepare sources or plan sample captures
+
 1. Choose the **Demos** folder and an **Output** folder. Use **Scan folder** to
    refresh the list; **Include subfolders** controls recursive discovery.
 2. Select one to eight demos. Ctrl-click and Shift-click select multiple rows.
@@ -116,14 +156,13 @@ not bypassed. Use the [batch guide](COMPETITIVE_BATCH.md) and
   the launcher's Output field points elsewhere.
 - Folder/options preferences live in `data/launcher/settings.json`. Startup
   failures are recorded in `data/launcher/startup-error.txt`.
-- Raw originals currently cost about **1.18 GB per ten-second clip**, with
+- Legacy 720p sample originals cost about **1.18 GB per ten-second clip**, with
   additional demo copies, traces and review files. The app checks working space
   on the batch drive before capture; this is not a whole-demo budget or guarantee.
 
-This first version prepares sources and manages **bounded sample batches**.
-Multiple instances and the
-[complete-player demo queue](progress/FULL_PLAYER_DEMO_PLAN.md) remain future
-features. Source preparation can read arbitrary demos, but rendering and training
+The launcher supports the **complete demo queue for one selected player per
+entry** as well as bounded sample batches. Parallel game instances remain future
+work. Source preparation can read arbitrary demos, but rendering and training
 acceptance remain limited to the project's supported source/game profiles.
 
 ## Verification
