@@ -8,7 +8,7 @@ The launcher remembers your folders and options between sessions.
 From PowerShell, the equivalent is:
 
 ```powershell
-.venv/Scripts/pythonw.exe -m cs2_data.desktop
+.venv/Scripts/pythonw.exe "Launch Demo Processor.pyw"
 ```
 
 Run this from the inner folder containing `pyproject.toml`. A future reinstall
@@ -27,9 +27,11 @@ is not required for the double-click launcher.
    consecutive frames. The sample clip count/duration controls do not affect
    this preset or full-demo coverage.
 3. Click **Queue entire demo**. Repeat for other demo/player entries if needed.
-4. In **Demo queue**, click **Start / resume queue** once. Preprocessing discovers
-   all eligible rounds for that player, then capture, numerical acceptance and
-   compression continue automatically through the queue.
+4. In **Demo queue**, keep **Validation workers** at **2** initially (1-4 are
+   available), then click **Start / resume queue** once. Preprocessing discovers
+   all eligible rounds. One recorder continues while separate CPU workers
+   validate previous clips and an archive worker compresses them. The queue
+   shows recording, validation, waiting and compression counts.
 5. **Open coverage report** shows planned intervals, excluded time, completion,
    accepted examples, rejected examples and their reason counts.
 
@@ -48,12 +50,16 @@ working files and staged demo copy are released only after archive verification.
 The original demo and shared parsed source are retained. Changing Output selects
 another queue; returning to the original folder restores its entries.
 
-**Stop after current step** finishes the current full-demo segment, including
-acceptance, compression and cleanup, before stopping. Closing the busy launcher
+**Stop after current step** stops new captures, finishes the active recording,
+and drains already captured clips through acceptance, compression and cleanup.
+Closing the busy launcher
 requests that same graceful stop. Reopen it and use **Start / resume queue** to
 continue. Completed segments are verified and skipped. Low disk space pauses
 before the next capture; source or processing failures retain their journal and
-show **needs attention**. A running queue uses one CS2 instance at a time.
+show **needs attention**. A running queue uses one CS2 instance at a time. CS2
+still reopens per capture, but it no longer waits for the prior clip's full
+validation/compression chain. The backlog is capped at one more clip than the
+validation worker count; the default allows three clips in progress.
 
 ### Prepare sources or plan sample captures
 
@@ -141,8 +147,9 @@ not bypassed. Use the [batch guide](COMPETITIVE_BATCH.md) and
 
 ## Stopping, output and limits
 
-- **Stop after current step** prevents the next producer/process from starting.
-  It lets the current extraction, planner or single-clip batch invocation finish.
+- **Stop after current step** prevents new recordings and drains admitted
+  full-demo work. For source preparation or sample batches, it lets the current
+  extraction, planner or single-clip batch invocation finish.
   It is not an immediate process kill.
 - Closing a busy window requests the same stop, then closes when the task and
   any renderer cleanup attempt return. Recovery failures remain in the log and

@@ -85,12 +85,13 @@ class DemoLauncher:
         self.seconds = tk.StringVar(value=str(settings.get("clip_seconds", 10)))
         self.plan_path = tk.StringVar(value=str(settings.get("batch_path", "")))
         self.status = tk.StringVar(value="Ready")
-        self.elapsed = tk.StringVar(value="One worker")
+        self.elapsed = tk.StringVar(value="Ready")
         self.disk = tk.StringVar()
         self.selection_text = tk.StringVar(value="Choose a folder, then select the demos to prepare.")
         self.batch_text = tk.StringVar(value="Load an existing batch or plan sample captures from the Demos tab.")
         self.player = tk.StringVar(value=AUTO_PLAYER)
         self.output_preset = tk.StringVar(value=TRAINING_PRESET)
+        self.validation_workers = tk.StringVar(value=str(settings.get("validation_workers", 2)))
         self.queue_text = tk.StringVar(value="Queue one demo and player at a time, then start automatic processing.")
         self.player_note = tk.StringVar(value="Load players to choose a POV. Missing source data will be prepared first.")
         root.title("Chicken Farmer - Demo Processing")
@@ -222,9 +223,16 @@ class DemoLauncher:
         self._button(queue_bar, "Refresh queue", self.refresh_queue, while_busy=True, side="left", padx=8)
         self._button(queue_bar, "Open coverage report", self.open_queue_report, while_busy=True, side="right")
         self._button(queue_bar, "Open output", lambda: self.open_path(self.queue_path().parent), while_busy=True, side="right", padx=8)
-        ttk.Label(self.queue_tab, text="Runs continuously across all eligible rounds. Internal segments last up to two minutes.\n"
-                  "Dead time, pauses and setup are excluded and reported. Stop finishes the current segment, compression and cleanup.",
-                  style="Subtle.TLabel", wraplength=930).grid(row=4, column=0, sticky="w", pady=(10, 0))
+        parallel_bar = ttk.Frame(self.queue_tab)
+        parallel_bar.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        ttk.Label(parallel_bar, text="Validation workers").pack(side="left", padx=(0, 8))
+        workers = ttk.Combobox(parallel_bar, textvariable=self.validation_workers, values=(1, 2, 3, 4), state="readonly", width=4)
+        workers.pack(side="left")
+        self.controls.append(workers)
+        ttk.Label(parallel_bar, text="  2 recommended · one recorder · bounded backlog", style="Subtle.TLabel").pack(side="left")
+        ttk.Label(self.queue_tab, text="Recording overlaps validation and lossless compression. Internal segments last up to two minutes.\n"
+                  "Stop finishes the active capture and drains captured clips through validation, compression and cleanup.",
+                  style="Subtle.TLabel", wraplength=930).grid(row=5, column=0, sticky="w", pady=(8, 0))
 
         bar = ttk.Frame(self.capture_tab)
         bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
@@ -303,7 +311,7 @@ class DemoLauncher:
     def _save(self):
         backend.save_settings(self.settings_path, {"demo_folder": self.folder.get(), "output_folder": self.output.get(),
             "recursive": self.recursive.get(), "series_id": self.series.get(), "clips": self.clips.get(),
-            "clip_seconds": self.seconds.get(), "batch_path": self.plan_path.get(),
+            "clip_seconds": self.seconds.get(), "batch_path": self.plan_path.get(), "validation_workers": self.validation_workers.get(),
             "last_run": str(self.run_dir) if self.run_dir else ""})
 
     def queue_path(self):
@@ -341,18 +349,26 @@ class DemoLauncher:
             self.queue_tree.selection_set([key for key in selected if self.queue_tree.exists(key)])
             self.queue_text.set(f"{len(doc['jobs'])} demos · 640×360 RGB8 · 32 FPS · lossless training shards and evidence archives. "
                                 "Completed segments resume without recapture.")
+            active = next((j for j in doc["jobs"] if j["status"] == "processing" and j.get("pipeline")), None)
+            if active:
+                p = active["pipeline"]
+                self.queue_text.set(f"Recording {p.get('recording', 0)}/1 · Validating {p.get('validating', 0)}/{p['validation_workers']} · "
+                    f"Waiting {p.get('waiting', 0)} · Compressing {p.get('compressing', 0)}/1 · "
+                    f"In progress {p.get('in_flight', 0)}/{p['max_in_flight']}")
         except (OSError, ValueError, KeyError, TypeError) as error:
             self.queue_text.set("Queue needs attention: "+str(error))
 
     def process_queue(self):
         try:
             from .full_demo import load_queue, run_queue
+            from .demo_pipeline import worker_count
+            workers = worker_count(int(self.validation_workers.get()))
             path = self.queue_path()
             doc = load_queue(path)
             if not any(job["status"] not in ("complete", "cancelled") for job in doc["jobs"]):
                 self.error("Queue a demo and player first. Completed demos are already retained.")
                 return
-            self._start("full-demo", lambda task: run_queue(task, path))
+            self._start("full-demo", lambda task: run_queue(task, path, validation_workers=workers))
         except (OSError, ValueError) as error:
             self.error(str(error))
 
@@ -692,7 +708,7 @@ class DemoLauncher:
         if value["kind"] == "full-demo":
             self.refresh_queue()
             status = result.get("status")
-            self.status.set("Queue stopped after current segment" if self.stop.is_set() or status == "stopped" else
+            self.status.set("Queue stopped; active clips finished" if self.stop.is_set() or status == "stopped" else
                             "Queue paused: low disk space - free space, then resume" if status == "paused_low_disk" else
                             "Queue complete - open the coverage report" if status == "complete" else
                             "Queue run finished - see demo statuses and coverage reports")
@@ -726,7 +742,7 @@ class DemoLauncher:
         if self.busy:
             self.stop.set()
             self.stop_button.state(["disabled"])
-            self.status.set("Finishing current step before stopping; keep the app open")
+            self.status.set("Finishing active work and queued captures before stopping; keep the app open")
 
     def close(self):
         if self.busy:

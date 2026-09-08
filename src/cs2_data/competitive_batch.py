@@ -498,7 +498,7 @@ def _run(root, plan, digest, *, execute, max_jobs, retry_failed, options):
         finally:
             measurements[stage][operation+"_seconds"] += time.perf_counter()-before
             measurements[stage][operation+"_calls"] += 1
-    if execute:
+    if execute and options["mode"] != "process":
         for stored in state["jobs"].values():
             # Check every prior renderer, including a later job in plan order,
             # before allowing any new launch in this invocation.
@@ -509,8 +509,12 @@ def _run(root, plan, digest, *, execute, max_jobs, retry_failed, options):
         source = next(s for s in plan["sources"] if s["source_id"] == item["source_id"])
         stored = state["jobs"][item["job_id"]]; parents = {}; outcome = {"job_id": item["job_id"], "source_id": source["source_id"]}
         operated = False
-        for stage in STAGES:
+        for stage in (STAGES[:1] if options["mode"] == "record" else STAGES):
             attempts = stored["stages"][stage]; latest = attempts[-1] if attempts else None
+            # Background processing consumes a completed, immutable capture. It
+            # must never recover an in-progress renderer or launch another game.
+            if stage == "render" and options["mode"] == "process" and (not latest or latest["status"] != "completed"):
+                outcome.update(status="capture_required", stage=stage); break
             if latest and latest["status"] in ("completed", "running"):
                 try:
                     if latest.get("files"):
@@ -572,7 +576,7 @@ def _run(root, plan, digest, *, execute, max_jobs, retry_failed, options):
                 "failed", "retry_required", "recovery_required", "evidence_invalid", "artifact_changed", "revalidation_required"):
             budget = 0
     summary = {"schema_version": 1, "profile": PROFILE, "plan_sha256": digest, "execute": execute,
-               "jobs": statuses, "job_status_counts": dict(Counter(row["status"] for row in statuses)),
+               "mode": options["mode"], "jobs": statuses, "job_status_counts": dict(Counter(row["status"] for row in statuses)),
                "accepted_sample_count": sum(row.get("accepted_count", 0) for row in statuses),
                "rejected_sample_count": sum(row.get("rejected_count", 0) for row in statuses),
                "performance": {"scope": "diagnostic_this_invocation_not_acceptance_evidence",
@@ -587,12 +591,14 @@ def _run(root, plan, digest, *, execute, max_jobs, retry_failed, options):
 
 
 def run_batch(plan_dir: Path, *, execute=False, max_jobs=3, retry_failed=False,
-              game_dir=None, plugin=None, ffmpeg=None, ffprobe=None, steam_dir=None, steam_user_id=None, progress=None):
+              game_dir=None, plugin=None, ffmpeg=None, ffprobe=None, steam_dir=None, steam_user_id=None, progress=None,
+              mode="all"):
     _require(type(execute) is bool and type(retry_failed) is bool and type(max_jobs) is int and 1 <= max_jobs <= MAX_JOBS,
              "Invalid bounded batch execution options")
     path, plan, digest = load_batch_plan(plan_dir); root = path.parent
     _require(progress is None or callable(progress), "Batch progress callback must be callable")
-    options = dict(game_dir=game_dir, plugin=plugin, ffmpeg=ffmpeg, ffprobe=ffprobe, steam_dir=steam_dir, steam_user_id=steam_user_id, progress=progress)
+    _require(mode in ("all", "record", "process"), "Unknown batch execution mode")
+    options = dict(game_dir=game_dir, plugin=plugin, ffmpeg=ffmpeg, ffprobe=ffprobe, steam_dir=steam_dir, steam_user_id=steam_user_id, progress=progress, mode=mode)
     previous_path = os.environ.get("PATH", "")
     try:
         if ffmpeg:

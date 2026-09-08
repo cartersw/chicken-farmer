@@ -282,11 +282,17 @@ def write_report(root, plan, progress):
                     f"<td>{e(state.get('error', '') or reasons)}</td></tr>")
     exclusions = ''.join(f"<tr><td>{e(k.replace('_', ' '))}</td><td>{v:.2f}s</td></tr>" for k, v in plan["exclusion_seconds"].items())
     details = ''.join(f"<tr><td>{r['start_demo_tick']/64:.2f}–{r['end_demo_tick']/64:.2f}s</td><td>{e(r['reason'].replace('_',' '))}</td></tr>" for r in plan["exclusions"])
+    pipeline = progress.get("pipeline", {})
+    concurrency = (f"<p>Recording {pipeline.get('recording', 0)}/1 · "
+        f"Validating {pipeline.get('validating', 0)}/{pipeline.get('validation_workers', 2)} · "
+        f"Waiting {pipeline.get('waiting', 0)} · Compressing {pipeline.get('compressing', 0)}/1 · "
+        f"In progress {pipeline.get('in_flight', 0)}/{pipeline.get('max_in_flight', 3)}</p>") if pipeline else ""
     body = f'''<!doctype html><html><head><meta charset="utf-8"><title>Full demo processing</title>
 <style>body{{font:16px system-ui;background:#101725;color:#eef3fb;max-width:1150px;margin:40px auto;padding:0 24px}}
 table{{width:100%;border-collapse:collapse;margin:20px 0}}td,th{{text-align:left;padding:10px;border-bottom:1px solid #334155}}p{{color:#b9c8db}}a{{color:#83caff}}</style></head>
 <body><h1>{e(Path(plan['source']['demo']).name)}</h1><p>Player {e(plan['source']['steam_id'])} · 640×360 · RGB · 8 bits/channel · 32 FPS · eight-frame histories</p>
 <h2>{e(progress.get('status','planned').replace('_',' ').title())}</h2>
+{concurrency}
 <p>{len([v for v in statuses.values() if v.get('status')=='complete'])}/{len(plan['segments'])} segments compressed · {progress.get('accepted_samples',0):,} unique accepted examples · {plan['planned_seconds']/60:.2f} minutes of eligible play</p>
 <p>The queue continues automatically. Capture boundaries include overlapping history; duplicate action targets are removed. Dead time, pauses, setup and unavailable source data are excluded. Accepted examples also require valid timing and labels.</p>
 <table><tr><th>Segment</th><th>Round</th><th>Owned source interval</th><th>Status</th><th>Examples</th><th>Rejected</th><th>Duplicates</th><th>Details</th></tr>{''.join(rows)}</table>
@@ -297,7 +303,7 @@ table{{width:100%;border-collapse:collapse;margin:20px 0}}td,th{{text-align:left
     temporary.write_text(body, encoding="utf-8"); temporary.replace(path)
 
 
-def run_demo(root, *, stop=None, emit=None, max_segments=None):
+def run_demo(root, *, stop=None, emit=None, max_segments=None, validation_workers=2):
     root = Path(root).resolve()
     stop, emit = stop or threading.Event(), emit or (lambda message: None)
     plan = read_json(root/"demo_plan.json")
@@ -320,65 +326,14 @@ def run_demo(root, *, stop=None, emit=None, max_segments=None):
         work = root/"work"/segment_id
         if work.exists():
             release_work(work, receipt, root)
-    completed_now = 0
-    for index, segment in enumerate(plan["segments"], 1):
-        state = progress["segments"].setdefault(segment["id"], {"status": "pending"})
-        if state["status"] == "complete":
-            continue
-        if stop.is_set() or (max_segments is not None and completed_now >= max_segments):
-            progress["status"] = "stopped"
-            save_settings(root/"progress.json", progress); write_report(root, plan, progress)
-            return progress
-        # Bound working space, without arbitrary clip/session count or time limits.
-        if shutil.disk_usage(root).free < 15_000_000_000:
-            progress["status"] = "paused_low_disk"
-            save_settings(root/"progress.json", progress); write_report(root, plan, progress)
-            return progress
-        state.update(status="preparing", started_at=now()); state.pop("error", None)
-        progress["status"] = "processing"
-        save_settings(root/"progress.json", progress); write_report(root, plan, progress)
-        emit(f"Segment {index}/{len(plan['segments'])}: preparing round {segment['round_id']} ({(segment['end_demo_tick']-segment['start_demo_tick'])/64:.2f}s)")
-        try:
-            work = prepare_segment(root, plan, segment)
-            state["status"] = "processing"; save_settings(root/"progress.json", progress)
-            emit(f"Segment {index}/{len(plan['segments'])}: capture, timing and numerical acceptance")
-            stage_names = {"render": "capture", "process": "frame/action processing", "synchronization": "timing alignment",
-                           "hud_review": "approved setup receipt", "acceptance": "training acceptance"}
-            def stage_progress(stage, operation):
-                emit(f"Segment {index}/{len(plan['segments'])}: {stage_names[stage]} ({'verification' if operation == 'verify' else 'running'})")
-            report = batch.run_batch(work/"batch", execute=True, max_jobs=1, retry_failed=True,
-                                     progress=stage_progress, **tools)
-            outcomes = report["jobs"]
-            require(len(outcomes) == 1 and outcomes[0]["status"] == "accepted_partition_verified",
-                    "Segment processing needs attention: "+json.dumps(outcomes))
-            state["status"] = "compressing"; save_settings(root/"progress.json", progress)
-            emit(f"Segment {index}/{len(plan['segments'])}: compressing RGB training frames and evidence")
-            package = root/"packages"/segment["id"]/uuid.uuid4().hex[:12]
-            receipt = pack_segment(work, package, segment["id"], seen=seen)
-            state.update(status="complete", receipt=str(package/"receipt.json"),
-                         receipt_sha256=sha256_file(package/"receipt.json"), finished_at=now(),
-                         **{key: receipt[key] for key in ("sample_count", "rejected_count", "duplicate_count", "compressed_bytes", "reason_counts")})
-            progress["accepted_samples"] = sum(v.get("sample_count", 0) for v in progress["segments"].values() if v["status"] == "complete")
-            save_settings(root/"progress.json", progress)
-            release_work(work, receipt, root)
-            completed_now += 1
-            write_report(root, plan, progress)
-            emit(f"Segment {index}/{len(plan['segments'])} complete: {receipt['sample_count']:,} examples, {receipt['compressed_bytes']/1e9:.2f} GB compressed")
-        except Exception as error:
-            # The package is already durable. A cleanup failure must never make
-            # resume recapture an accepted segment or lose its deduplication keys.
-            if state["status"] != "complete":
-                state["status"] = "needs_attention"
-            state["error"] = str(error)
-            progress["status"] = "needs_attention"
-            save_settings(root/"progress.json", progress); write_report(root, plan, progress)
-            raise
-    progress["status"] = "complete"
-    save_settings(root/"progress.json", progress); write_report(root, plan, progress)
-    return progress
+    from .demo_pipeline import run_pipeline
+    return run_pipeline(root, plan, progress, tools, seen, stop=stop, emit=emit,
+                        validation_workers=validation_workers, max_segments=max_segments)
 
 
-def run_queue(task, queue_path):
+def run_queue(task, queue_path, *, validation_workers=2):
+    from .demo_pipeline import worker_count
+    worker_count(validation_workers)
     queue_path = Path(queue_path).resolve()
     (task.project/"data/launcher").mkdir(parents=True, exist_ok=True)
     with batch._lock(queue_path.parent), batch._lock(task.project/"data/launcher"):
@@ -411,10 +366,10 @@ def run_queue(task, queue_path):
                     task.log(message); task.emit("status", message)
                     current = read_json(root/"progress.json")
                     job.update(completed_segments=sum(v["status"] == "complete" for v in current["segments"].values()),
-                               accepted_samples=current["accepted_samples"])
+                               accepted_samples=current["accepted_samples"], pipeline=current.get("pipeline", {}))
                     save_settings(queue_path, doc); task.emit("queue", str(queue_path))
 
-                progress = run_demo(root, stop=task.stop, emit=update)
+                progress = run_demo(root, stop=task.stop, emit=update, validation_workers=validation_workers)
                 job.update(status=progress["status"], accepted_samples=progress["accepted_samples"],
                            completed_segments=sum(v["status"] == "complete" for v in progress["segments"].values()), updated_at=now())
                 save_settings(queue_path, doc); task.emit("queue", str(queue_path))
@@ -433,13 +388,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--queue", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--validation-workers", type=int, choices=range(1, 5), default=2)
     args = parser.parse_args(argv)
     from .launcher_backend import TaskRunner
     args.queue.parent.mkdir(parents=True, exist_ok=True)
     (PROJECT/"data/launcher").mkdir(parents=True, exist_ok=True)
     task = TaskRunner(args.output, "full-demo", lambda kind, value: print(value, flush=True), threading.Event())
     try:
-        result = run_queue(task, args.queue)
+        result = run_queue(task, args.queue, validation_workers=args.validation_workers)
         task.finish("finished", result=result)
     except Exception as error:
         task.finish("failed", error=str(error)); raise

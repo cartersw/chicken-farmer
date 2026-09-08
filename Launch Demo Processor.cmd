@@ -7,4 +7,4 @@ if not exist ".venv\Scripts\pythonw.exe" (
     exit /b 1
 )
 set "PYTHONPATH=%~dp0src"
-start "" ".venv\Scripts\pythonw.exe" -m cs2_data.desktop
+start "" ".venv\Scripts\pythonw.exe" "Launch Demo Processor.pyw"

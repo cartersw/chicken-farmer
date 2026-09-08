@@ -98,7 +98,9 @@ def test_full_demo_requires_named_player_and_persists_decided_format(ui, monkeyp
     assert queued[0]["format"] == full_demo.FORMAT
     assert ui.tabs.select() == str(ui.queue_tab)
     calls = []
-    def run(task, path):
+    ui.validation_workers.set("3")
+    def run(task, path, *, validation_workers):
+        assert validation_workers == 3
         calls.append(path)
         task.emit("queue", str(path))
         return {"completed_demos": 0}
@@ -107,6 +109,7 @@ def test_full_demo_requires_named_player_and_persists_decided_format(ui, monkeyp
     assert ui.busy and ui.stop_button.instate(["!disabled"])
     pump(ui.root, lambda: not ui.busy)
     assert calls == [ui.queue_path()] and not ui.test_errors
+    assert backend.read_object(ui.settings_path)["validation_workers"] == "3"
     ui.refresh_queue()
     assert len(ui.queue_tree.get_children()) == 1
 
@@ -121,6 +124,23 @@ def test_status_and_stop_stay_visible_at_minimum_window_size(ui):
         assert bottom <= ui.root.winfo_rooty() + ui.root.winfo_height()
         assert widget.winfo_rootx() + widget.winfo_width() <= ui.root.winfo_rootx() + ui.root.winfo_width()
     ui.root.withdraw()
+
+
+def test_queue_displays_concurrent_counts_and_rejects_invalid_worker_count(ui, monkeypatch):
+    from cs2_data import full_demo
+    demo = populate(ui)
+    full_demo.enqueue(ui.queue_path(), demo, "76561198323592528", "Ckanic")
+    doc = full_demo.load_queue(ui.queue_path())
+    doc["jobs"][0].update(status="processing", pipeline={"recording": 1, "validating": 2,
+        "validation_workers": 2, "waiting": 0, "compressing": 0, "in_flight": 3, "max_in_flight": 3})
+    backend.save_settings(ui.queue_path(), doc)
+    ui.refresh_queue()
+    assert "Recording 1/1" in ui.queue_text.get() and "Validating 2/2" in ui.queue_text.get()
+    assert "In progress 3/3" in ui.queue_text.get()
+    monkeypatch.setattr(full_demo, "run_queue", lambda *a, **k: pytest.fail("Invalid worker count must not start a queue"))
+    ui.validation_workers.set("99")
+    ui.process_queue()
+    assert "1 and 4" in ui.test_errors[-1] and not ui.busy
 
 
 def test_prepare_dispatches_selected_files_and_preserves_no_training_status(ui, monkeypatch):

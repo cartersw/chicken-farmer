@@ -2,6 +2,11 @@
 
 This folder tracks completed work, verification, blockers, and the remaining CS2 vision imitation-learning milestones.
 
+**Parallel processing:** The Demo queue overlaps recording with 1-4 validation
+processes (default 2) and ordered lossless compression. Backlog limits,
+graceful draining and capture reuse on resume are implemented. See
+[full-demo processing](../FULL_DEMO_PROCESSING.md#queue-and-recovery).
+
 **New full-demo queue:** [Demo Processor](../DESKTOP_APP.md) now queues a complete
 demo for one named player, preprocesses all eligible rounds, captures them
 automatically and publishes lossless 640x360 RGB8 training/evidence archives.

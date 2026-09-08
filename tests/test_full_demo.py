@@ -76,6 +76,15 @@ def test_exclusions_account_for_dead_freeze_pause_missing_and_bad_commands(tmp_p
 
 @pytest.fixture
 def run_fixture(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from concurrent.futures import ThreadPoolExecutor
+    import queue
+    from cs2_data import demo_pipeline
+    @contextmanager
+    def workers(count):
+        with ThreadPoolExecutor(1) as recorder, ThreadPoolExecutor(count) as validators, ThreadPoolExecutor(1) as archiver:
+            yield recorder, validators, archiver, queue.Queue()
+    monkeypatch.setattr(demo_pipeline, "create_workers", workers)
     root = tmp_path/"job"
     root.mkdir()
     source = tmp_path/"source.dem"
@@ -98,7 +107,7 @@ def run_fixture(tmp_path, monkeypatch):
         assert kwargs["ffmpeg"] == "bundled-ffmpeg" and kwargs["ffprobe"] == "bundled-ffprobe"
         assert callable(kwargs["progress"])
         kwargs["progress"]("process", "perform")
-        return {"jobs": [{"status": "accepted_partition_verified"}]}
+        return {"jobs": [{"status": "verified_render_artifacts" if kwargs["mode"] == "record" else "accepted_partition_verified"}]}
     monkeypatch.setattr(full.batch, "run_batch", run_batch)
     def pack(work, package, segment_id, **kwargs):
         import zipfile
@@ -118,6 +127,7 @@ def run_fixture(tmp_path, monkeypatch):
         released.append(work.name)
         work.rmdir()
     monkeypatch.setattr(full, "release_work", release)
+    monkeypatch.setattr(demo_pipeline, "captured_work", lambda root, key: root/"work"/key if (root/"work"/key).exists() else None)
     return root, prepared, packed, released
 
 
@@ -134,7 +144,7 @@ def test_stop_finishes_packaging_current_segment_then_resume_continues(run_fixtu
     root, prepared, packed, released = run_fixture
     stop = threading.Event()
     def notify(message):
-        if "capture, timing" in message:
+        if "recording (validation" in message:
             stop.set()
     progress = full.run_demo(root, stop=stop, emit=notify)
     assert progress["status"] == "stopped" and packed == released == ["0"]
@@ -179,7 +189,8 @@ def test_queue_preprocesses_all_entries_then_skips_completed_entries_on_resume(t
     def plan(sources, root, steam_id):
         write_json(root/"demo_plan.json", {"source": {"demo": read_json(sources)["demo"], "steam_id": steam_id},
                                          "segments": [{"id": "one"}], "planned_seconds": 80})
-    def run(root, stop, emit):
+    def run(root, stop, emit, validation_workers):
+        assert validation_workers == 2
         processed.append(root)
         progress = {"status": "complete", "accepted_samples": 20, "segments": {"one": {"status": "complete"}}}
         save_settings(root/"progress.json", progress)
@@ -208,3 +219,116 @@ def test_saved_plan_cannot_substitute_a_different_player(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="another queued demo/player"):
         full.run_queue(task, queue)
     assert full.load_queue(queue)["jobs"][0]["status"] == "needs_attention"
+
+
+
+def extend_run(root, count):
+    plan = read_json(root/"demo_plan.json")
+    plan["segments"] = [{**plan["segments"][0], "id": str(i)} for i in range(count)]
+    save_settings(root/"demo_plan.json", plan)
+    progress = read_json(root/"progress.json")
+    progress["plan_sha256"] = sha256_file(root/"demo_plan.json")
+    save_settings(root/"progress.json", progress)
+
+
+def test_two_validators_overlap_next_recording_and_bound_raw_backlog(run_fixture, monkeypatch):
+    root, prepared, packed, released = run_fixture
+    extend_run(root, 5)
+    validators = [threading.Event(), threading.Event()]
+    third_recording = threading.Event()
+    original = full.batch.run_batch
+    peak = 0
+    def run(path, **kwargs):
+        key = int(path.parent.name)
+        if kwargs["mode"] == "record" and key == 2:
+            assert all(event.wait(5) for event in validators), "Both validators must run alongside recording"
+            third_recording.set()
+        elif kwargs["mode"] == "process" and key < 2:
+            validators[key].set()
+            assert third_recording.wait(5), "Recording must not wait for validation"
+        return original(path, **kwargs)
+    monkeypatch.setattr(full.batch, "run_batch", run)
+    def notify(message):
+        nonlocal peak
+        current = read_json(root/"progress.json")
+        peak = max(peak, current["pipeline"]["in_flight"])
+        assert current["pipeline"]["recording"] <= 1
+        assert current["pipeline"]["validating"] <= 2
+        assert len(prepared) - len(released) <= 3
+    result = full.run_demo(root, emit=notify)
+    assert result["status"] == "complete" and peak == 3
+    assert packed == released == [str(i) for i in range(5)]
+
+
+def test_validation_error_retains_later_captures_and_resume_does_not_record_again(run_fixture, monkeypatch):
+    root, prepared, packed, released = run_fixture
+    recorded_second = threading.Event()
+    original = full.batch.run_batch
+    def fail(path, **kwargs):
+        if kwargs["mode"] == "record" and path.parent.name == "1":
+            recorded_second.set()
+        if kwargs["mode"] == "process" and path.parent.name == "0":
+            assert recorded_second.wait(5)
+            raise ValueError("invalid timing evidence")
+        return original(path, **kwargs)
+    monkeypatch.setattr(full.batch, "run_batch", fail)
+    with pytest.raises(ValueError, match="invalid timing"):
+        full.run_demo(root)
+    assert prepared == ["0", "1"] and not packed and not released
+    monkeypatch.setattr(full.batch, "run_batch", original)
+    assert full.run_demo(root)["status"] == "complete"
+    assert prepared == packed == released == ["0", "1"]
+
+
+def test_stop_drains_all_already_recorded_clips(run_fixture):
+    root, prepared, packed, released = run_fixture
+    extend_run(root, 6)
+    stop = threading.Event()
+    def notify(message):
+        if "Segment 3/6: recording" in message:
+            stop.set()
+    result = full.run_demo(root, stop=stop, emit=notify)
+    assert result["status"] == "stopped"
+    assert prepared == packed == released == ["0", "1", "2"]
+    assert full.run_demo(root)["status"] == "complete"
+    assert prepared == packed == released == [str(i) for i in range(6)]
+
+
+def test_later_validation_finishes_first_but_packaging_preserves_dedup_order(run_fixture, monkeypatch):
+    root, _, packed, _ = run_fixture
+    second_validated = threading.Event()
+    original = full.batch.run_batch
+    def run(path, **kwargs):
+        if kwargs["mode"] == "process":
+            if path.parent.name == "0":
+                assert second_validated.wait(5)
+            else:
+                second_validated.set()
+        return original(path, **kwargs)
+    monkeypatch.setattr(full.batch, "run_batch", run)
+    original_pack = full.pack_segment
+    def pack(work, package, key, *, seen):
+        assert seen == (set() if key == "0" else {"earlier target"})
+        result = original_pack(work, package, key, seen=seen)
+        seen.add("earlier target")
+        return result
+    monkeypatch.setattr(full, "pack_segment", pack)
+    assert full.run_demo(root)["status"] == "complete"
+    assert packed == ["0", "1"]
+
+
+def test_low_disk_drains_archives_before_admitting_more_captures(run_fixture, monkeypatch):
+    root, prepared, packed, released = run_fixture
+    available = [100_000_000_000]
+    monkeypatch.setattr(full.shutil, "disk_usage", lambda *args: SimpleNamespace(free=available[0]))
+    original = full.release_work
+    def release(work, *args):
+        assert prepared == (["0"] if work.name == "0" else ["0", "1"])
+        original(work, *args)
+        available[0] = 100_000_000_000
+    monkeypatch.setattr(full, "release_work", release)
+    def notify(message):
+        if "Segment 1/2: recording" in message:
+            available[0] = 10
+    assert full.run_demo(root, emit=notify)["status"] == "complete"
+    assert prepared == packed == released == ["0", "1"]

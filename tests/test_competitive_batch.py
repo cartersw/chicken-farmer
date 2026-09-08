@@ -338,3 +338,39 @@ def test_hud_stage_still_binds_metadata_to_the_correct_capture(policy_stage, his
         write(path, receipt)
     with pytest.raises(ValueError, match="another capture"):
         batch._verify_stage("hud_review", out, {}, {}, parents)
+
+
+@pytest.mark.parametrize("render_status", [None, "running", "failed", "interrupted"])
+def test_processing_only_never_launches_or_recovers_a_renderer(runner, render_status):
+    if render_status:
+        batch.run_batch(runner["out"], execute=True, max_jobs=2, mode="record")
+        path = runner["out"]/"batch_state.json"
+        state = batch.read_json(path)
+        for job in state["jobs"].values():
+            job["stages"]["render"][-1]["status"] = render_status
+        write(path, state)
+    runner["calls"].clear()
+    runner["control"]["unsafe"] = True
+    result = batch.run_batch(runner["out"], execute=True, mode="process", retry_failed=True)
+    assert all(job["status"] == "capture_required" for job in result["jobs"])
+    assert not runner["calls"]
+
+
+def test_saved_capture_can_be_processed_while_next_game_is_running(runner):
+    batch.run_batch(runner["out"], execute=True, max_jobs=2, mode="record")
+    assert [stage for _, stage, _ in runner["calls"]] == ["render", "render"]
+    runner["calls"].clear()
+    runner["control"].update(unsafe=True, approved=True)
+    report = batch.run_batch(runner["out"], execute=True, mode="process", retry_failed=True)
+    assert all(job["status"] == "accepted_partition_verified" for job in report["jobs"])
+    assert "render" not in [stage for _, stage, _ in runner["calls"]]
+    assert "render" in runner["verifies"]
+
+
+def test_background_processing_still_rejects_changed_capture(runner):
+    batch.run_batch(runner["out"], execute=True, max_jobs=2, mode="record")
+    Path(runner["calls"][0][2], "evidence.json").write_text("changed")
+    runner["calls"].clear()
+    result = batch.run_batch(runner["out"], execute=True, mode="process", retry_failed=True)
+    assert result["jobs"][0]["status"] == "artifact_changed"
+    assert not any(key == runner["plan"]["jobs"][0]["job_id"] for key, _, _ in runner["calls"])

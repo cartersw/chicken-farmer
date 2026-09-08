@@ -1,6 +1,21 @@
 # Current implementation status
 
-**Latest work (2026-09-08): entire-demo desktop processing.**
+**Latest work (2026-09-08): parallel full-demo processing.**
+The Demo queue now overlaps one recorder with 1-4 independent CPU validation
+processes (default 2) and an ordered lossless archive worker. The bounded backlog
+holds at most worker count + 1 unfinished clips. Stop drains admitted work;
+resume reuses completed captures. Processing-only batch mode cannot launch CS2
+and verifies immutable capture evidence while the next recording runs. The
+desktop worker setting persists and the desktop shortcut uses an explicit
+source bootstrap. Focused process, queue, renderer, archive and Windows Tk tests
+pass **257 tests**, including simultaneous validators, backlog pressure,
+out-of-order completion and failure recovery. See
+[parallel pipeline verification](../../data/validation/parallel-pipeline-001/README.md).
+A real three-clip test produced 480 frames and 459 accepted examples. Two
+validators overlapped the third recording for 59.50 seconds; lossless packages,
+raw-work cleanup, rolling RGB reads and resume without recapture all passed.
+
+**Previous work: entire-demo desktop processing.**
 The [full-demo queue](../FULL_DEMO_PROCESSING.md) selects one demo/player per
 entry, reuses or prepares source data, plans all eligible alive round progression,
 then automatically captures, numerically accepts and losslessly compresses each

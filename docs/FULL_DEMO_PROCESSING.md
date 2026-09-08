@@ -72,17 +72,45 @@ coverage or trained performance.
 
 One persistent queue owns its output directory; a project lock prevents two
 full-demo queues from capturing simultaneously. Entries run in queue order.
-There is no 20-second manual advance or session time/clip-count limit. Internal
-segment length and a 15 GB free-space floor bound temporary work. Exhausting
-available storage pauses the queue without deleting archived data.
+There is no 20-second manual advance or session time/clip-count limit.
 
-Stop finishes the active segment through compression and cleanup. Resume verifies
+The recorder hands completed captures to independent validation processes and
+immediately records the next segment when backlog space is available. The UI's
+**Validation workers** setting accepts 1-4 and defaults to **2**. Each validator
+runs frame/action processing, timing alignment and numerical acceptance for one
+clip. Processes isolate their tool paths and proof state and can use separate
+CPU cores; each limits Arrow to two compute and two I/O threads. The GPU renders
+CS2; these validation steps currently run on the CPU.
+
+One archive worker runs alongside recording and validation. It publishes clips
+in source order so duplicate action targets receive deterministic ownership,
+even when later validations finish first. Each frame remains losslessly
+compressed RGB8; validation and archive integrity requirements are unchanged.
+
+At most `validation_workers + 1` clips are in progress, including recording,
+validation, waiting and compression (**three** at the default setting). A slot
+is released only after verified archives are published and raw work is cleaned
+up. Captures remain bounded to two minutes and need at least 15 GB free before
+starting. If space is low, existing work drains first; the queue pauses if space
+remains insufficient. The activity view reports concurrent stage counts.
+
+There is still only one CS2 recorder, and CS2 still exits and reopens for each
+capture. Validation consumes archived capture evidence and never launches,
+recovers or requires an idle game. Removing per-capture game startup is a
+separate improvement. Additional workers can compete for RAM and disk bandwidth;
+raising the setting is not a guarantee of proportional speedup.
+
+Stop prevents new captures, finishes the active recording and drains all admitted
+clips through validation, compression and cleanup. Resume verifies
 the immutable plan/source and completed archives, rebuilds duplicate-target
 membership, skips completed segments and resumes unfinished batch stages using
-their journals. Interrupted preprocessing and package attempts remain inspectable.
+their journals. Saved completed captures go directly to validation without
+recapture. Interrupted preprocessing and package attempts remain inspectable.
 A cleanup failure preserves the completed package receipt; resume retries cleanup
 without recapturing it. Processing errors stop the queue with a specific error,
-without silently accepting or skipping failed data.
+without silently accepting or skipping failed data. Active workers finish and
+later captured clips remain available for resume; failed segments are never
+skipped to publish a later archive.
 
 ## Rolling decompression and trainer handoff
 
