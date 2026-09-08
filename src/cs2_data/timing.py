@@ -14,12 +14,15 @@ import struct
 from typing import Any
 
 from .io import exclusive_output, publish, read_json, sha256_file, staging_paths, write_json
+from .session_evidence import SessionLedger, events, endpoints
 
 CAPTURE_STATUS = "observed_movie_submission"
 IDENTITY = ("demo_id", "clip_id", "round_id", "steam_id", "player_slot")
 
 
 def read_ledger(path: Path) -> list[dict[str, Any]]:
+    if path.name.endswith(".view.json"):
+        return SessionLedger(path)
     with path.open(encoding="utf-8-sig") as handle:
         records = [json.loads(line) for line in handle if line.strip()]
     if any(not isinstance(row, dict) for row in records):
@@ -51,8 +54,8 @@ def capture_boundaries(records: list[dict[str, Any]], render: dict[str, Any]) ->
     prefix = render.get("capture_prefix")
     if not isinstance(prefix, str) or not re.fullmatch(r"[A-Za-z0-9-]+", prefix):
         raise ValueError("Render manifest requires the native capture prefix")
-    frames = [row for row in records[1:] if row.get("event") == "movie_frame"]
-    ends = [row for row in records[1:] if row.get("event") == "movie_end"]
+    frames = list(events(records, ("movie_frame",)))
+    ends = endpoints(records)
     if len(frames) != render.get("num_frames") or len(ends) != 1 or len(frames) < 2:
         raise ValueError("Movie ledger must contain every encoded frame and exactly one explicit endpoint")
     if any(row.get("movie_name") != prefix + "_" for row in frames + ends):
@@ -66,7 +69,8 @@ def capture_boundaries(records: list[dict[str, Any]], render: dict[str, Any]) ->
             raise ValueError("Native movie counters must be contiguous and start at zero")
         name = row.get("tga_filename", "")
         match = re.fullmatch(re.escape(prefix) + r"_(\d+)\.tga", name, re.IGNORECASE)
-        if not match or int(match[1]) != index:
+        native_index = row.get("native_capture_index") if isinstance(records, SessionLedger) else index
+        if not match or int(match[1]) != native_index:
             raise ValueError("Native TGA filename disagrees with movie counter")
     for row in frames + ends:
         tick = row.get("replay_demo_tick")
@@ -80,8 +84,8 @@ def capture_boundaries(records: list[dict[str, Any]], render: dict[str, Any]) ->
 
 def render_boundaries(records: list[dict[str, Any]]) -> list[float] | None:
     """Use the native semantic field only, never reinterpret a guessed raw float."""
-    selected = [row for row in records if row.get("event") == "movie_frame"]
-    selected += [row for row in records if row.get("event") == "movie_end"]
+    selected = list(events(records, ("movie_frame",)))
+    selected += endpoints(records)
     if not any("render_time_seconds" in row for row in selected):
         return None
     values = []
@@ -140,7 +144,7 @@ def tga_rgb24(path: Path) -> bytes:
 
 
 def verify_readback_pixels(records: list[dict[str, Any]], inventory: list[dict[str, Any]]) -> dict[str, Any]:
-    readbacks = [row for row in records if row.get("event") == "pixel_readback"]
+    readbacks = list(events(records, ("pixel_readback",)))
     if not readbacks:
         return {"status": "unavailable", "matched_frames": 0, "verified": False}
     by_index = {}
@@ -152,7 +156,7 @@ def verify_readback_pixels(records: list[dict[str, Any]], inventory: list[dict[s
         by_index[index] = row
     if len(by_index) != len(inventory):
         raise ValueError("Pixel readbacks do not cover every submitted/archived frame")
-    frame_records = [row for row in records if row.get("event") == "movie_frame"]
+    frame_records = list(events(records, ("movie_frame",)))
     matched = []
     for index, item in enumerate(inventory):
         row = by_index[index]
@@ -184,7 +188,7 @@ def verify_capture_evidence(clip: dict[str, Any], frames: list[dict[str, Any]]) 
     records = read_ledger(Path(evidence["ledger_path"]))
     ticks, header = capture_boundaries(records, render)
     render_times = render_boundaries(records)
-    native_frames = [row for row in records if row.get("event") == "movie_frame"]
+    native_frames = list(events(records, ("movie_frame",)))
     archive = archive_provenance(render, Path(evidence["render_manifest_path"]))
     if len(frames) != len(ticks)-1:
         raise ValueError("Frame timing count disagrees with native capture ledger")
@@ -226,7 +230,7 @@ def prepare_timing(clip_path: Path, ledger: Path, pts_path: Path, frames_dir: Pa
     records = read_ledger(ledger)
     ticks, header = capture_boundaries(records, render)
     render_times = render_boundaries(records)
-    native_frames = [row for row in records if row.get("event") == "movie_frame"]
+    native_frames = list(events(records, ("movie_frame",)))
     archive = archive_provenance(render, clip_path)
     pts = read_json(pts_path)
     if pts.get("clip_id") != render["clip_id"] or pts.get("clock") != "video_presentation":

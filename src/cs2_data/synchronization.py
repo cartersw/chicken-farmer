@@ -15,6 +15,7 @@ import pyarrow.dataset as ds
 from .clock_evidence import NetworkClockEvidence, command_envelope_matches, load_network_clock
 from .io import exclusive_output, parsed_manifest, publish, read_json, sha256_file, staging_paths, write_json
 from .timing import read_ledger, verify_capture_evidence
+from .session_evidence import SessionLedger, events, audit_cached
 from .validation import pov_status
 from .native_replay_profile import LEGACY_PROFILE, get_native_replay_profile, header_matches_profile
 
@@ -64,7 +65,12 @@ def _source_indices(evidence):
     return result
 
 
-def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockEvidence, *,
+def audit_native_messages(records, evidence, *, native_profile=LEGACY_PROFILE):
+    return audit_cached("messages", records, (evidence.sha256, native_profile),
+                        lambda: _audit_native_messages(records, evidence, native_profile=native_profile))
+
+
+def _audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockEvidence, *,
                           native_profile=LEGACY_PROFILE) -> dict[str, Any]:
     """Check paired hooks and reproduce counters/maxima before each observation.
 
@@ -74,7 +80,7 @@ def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockE
     fitted native playback offset. Source windows need only cover the capture.
     """
     profile = get_native_replay_profile(native_profile)
-    if not isinstance(records, list) or len(records) > 1000000 or any(not isinstance(row, dict) for row in records):
+    if not isinstance(records, SessionLedger) and (not isinstance(records, list) or len(records) > 1000000 or any(not isinstance(row, dict) for row in records)):
         raise ValueError("Native clock audit exceeds bounded record count")
     header = records[0] if records else {}
     contract = header.get("native_clock", {})
@@ -153,7 +159,7 @@ def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockE
                 "max_observed_entity_tick": max_entity, "max_observed_user_command_execution_tick": max_command,
                 "source_records": joined, "causality_bound_verified": False, "training_ready": False}
 
-    for ledger_index, row in enumerate(records):
+    for ledger_index, row in enumerate(records.iter_events(("network_clock_epoch", "network_message", "movie_frame", "session_boundary")) if isinstance(records, SessionLedger) else records):
         event = row.get("event")
         if event == "network_clock_epoch":
             if not _same(row.get("schema_version"), 1):
@@ -263,7 +269,7 @@ def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockE
                             persistent_reasons.add("native_net_tick_not_committed")
             else:
                 raise ValueError("Unsupported native message phase")
-        elif event in ("movie_frame", "movie_end"):
+        elif event in ("movie_frame", "movie_end", "session_boundary"):
             result = observe(row.get("native_clock"), row, ledger_index)
             result.update(event=event, frame_index=row.get("capture_index", row.get("next_capture_index")))
             observations.append(result)
@@ -297,9 +303,9 @@ def recompute_synchronization(parsed: Path, dataset: Path, network_clock: Path, 
     commands = ds.dataset(parsed / "usercmd.parquet").to_table(filter=condition).to_pylist()
     associations = command_envelope_matches(commands, evidence)
     native = audit_native_messages(records, evidence, native_profile=native_profile)
-    readbacks = {row.get("submission_candidate", {}).get("capture_index"): row for row in records if row.get("event") == "pixel_readback"}
+    readbacks = {row.get("submission_candidate", {}).get("capture_index"): row for row in events(records, ("pixel_readback",))}
     pov = []
-    for row in records:
+    for row in events(records, ("movie_frame",)):
         if row.get("event") == "movie_frame":
             index = row["capture_index"]
             status, reasons = pov_status(row.get("native_observation", {}), readbacks.get(index), clip)

@@ -102,3 +102,38 @@ def test_cleanup_cannot_escape_queue_root(completed):
     with pytest.raises(ValueError, match="escapes"):
         archive.release_work(work, receipt, destination)
     assert work.exists()
+
+
+def test_session_frames_are_archived_once_and_shared_archive_guards_cleanup(completed):
+    from cs2_data.session_profile import PROFILE
+    work, destination = completed
+    common = work.parents[1]/"session-packages/session"
+    common.mkdir(parents=True)
+    shared_zip = common/"evidence.zip"
+    members, references = {}, {}
+    state = read_json(work/"batch/batch_state.json")
+    with zipfile.ZipFile(shared_zip, 'w', compression=zipfile.ZIP_DEFLATED) as output:
+        for path in (work/"render/frames").glob("*.tga"):
+            member = "raw/run/"+path.name
+            digest = sha256_file(path)
+            output.write(path, member)
+            members[member] = {"sha256": digest}
+            references[path.relative_to(work).as_posix()] = {"member": member, "sha256": digest}
+            state["jobs"]["segment"]["stages"]["render"][-1]["files"][str(path)] = digest
+        output.writestr("archive_index.json", json.dumps({"members": members}))
+    archive.save_settings(work/"batch/batch_state.json", state)
+    receipt_path = common/"receipt.json"
+    write_json(receipt_path, {"profile": PROFILE, "status": "compressed",
+        "archive": {"path": str(shared_zip), "sha256": sha256_file(shared_zip)}})
+    write_json(work/"shared-session.json", {"receipt": str(receipt_path),
+        "receipt_sha256": sha256_file(receipt_path), "frames": references})
+    receipt = archive.pack_segment(work, destination, "segment")
+    with zipfile.ZipFile(receipt["evidence_archive"]["path"]) as output:
+        assert not any(name.endswith('.tga') for name in output.namelist())
+        index = json.loads(output.read("archive_index.json"))
+        assert index['shared_session']['frames'] == references
+    assert receipt['sample_count'] == 3
+    with shared_zip.open('ab') as output: output.write(b'changed')
+    with pytest.raises(ValueError, match='Shared recording archive changed'):
+        archive.release_work(work, receipt, work.parents[1])
+    assert work.exists()

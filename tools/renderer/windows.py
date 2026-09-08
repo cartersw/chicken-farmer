@@ -661,6 +661,10 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         raise ValueError("Output must be separate from the game installation")
     out.mkdir(parents=True, exist_ok=False)
     run_id = uuid.uuid4().hex
+    session = getattr(args, "session_plan", None)
+    if session is not None:
+        from cs2_data import recording_session
+        session = recording_session.stage_schedule(session, out, run_id, sys.modules[__name__])
     # A fresh capture prefix disambiguates repeat attempts, including engines that
     # write into the shared csgo/movie fallback rather than the temporary mod.
     capture_job = {**job, "clip_id": job["clip_id"] + "-" + run_id[:12]}
@@ -725,7 +729,7 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         if sha256_file(staged) != job["demo_id"]:
             raise ValueError("Staged demo copy differs from the immutable source hash")
         with Path(str(staged) + ".json").open("x", encoding="utf-8") as handle:
-            json.dump(make_sequence(capture_job, args.warmup_seconds), handle, indent=2)
+            json.dump([] if session is not None else make_sequence(capture_job, args.warmup_seconds), handle, indent=2)
         lease.mod_dir.mkdir()
         plugin_dir = lease.mod_dir / "bin/win64"
         plugin_dir.mkdir(parents=True)
@@ -747,6 +751,8 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         if cs2_pids():
             raise ValueError("CS2 started during worker setup; refusing to launch another process")
         launch = launch_arguments(game, job, staged, out / "plugin.log", args.allow_version_mismatch)
+        if session is not None:
+            launch += ["-chicken-session-plan", str(out/"session-plan.json")]
         report["launch_arguments"] = launch
         report["render_status"] = "rendering"
         atomic_json(manifest_path, report)
@@ -760,7 +766,9 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
             lease.record_pid(process.pid)
             report["owned_cs2_pid"] = process.pid
             atomic_json(manifest_path, report)
-            code = wait_for_game(process, movie_roots, capture_job, args.timeout)
+            code = (recording_session.wait_for_session(process, movie_roots, session, out, sys.modules[__name__],
+                    getattr(args, "session_stop", None), getattr(args, "session_emit", None)) if session is not None else
+                    wait_for_game(process, movie_roots, capture_job, args.timeout))
         report["cs2_exit_code"] = code
         if code:
             raise RuntimeError(f"Owned CS2 process exited with code {code}; inspect this run's process and native logs for the startup or capture error")
@@ -821,6 +829,11 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         atomic_json(manifest_path, report)
         raise RuntimeError(f"{failure}. Failed manifest: {manifest_path}") from failure
     try:
+        if session is not None:
+            report = recording_session.finish_capture(out, report, session, movie_roots, sys.modules[__name__])
+            report["finished_at_unix"] = time.time()
+            atomic_json(manifest_path, report)
+            return report
         report["settings_isolation"] = verify_settings_isolation(out, expected_pid=process.pid)
         files = capture_files(movie_roots, capture_job["clip_id"])
         report["captured_frame_count"] = len(files)

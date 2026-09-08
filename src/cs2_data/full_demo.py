@@ -313,6 +313,7 @@ def run_demo(root, *, stop=None, emit=None, max_segments=None, validation_worker
     batch._verify_hashes(plan["source_files"])
     tools = renderer_tools(PROJECT)
     seen = set()
+    shared_verified = set()
     for segment_id, record in progress["segments"].items():
         if record.get("status") != "complete":
             continue
@@ -320,15 +321,36 @@ def run_demo(root, *, stop=None, emit=None, max_segments=None, validation_worker
         require(sha256_file(Path(record["receipt"])) == record["receipt_sha256"], "Completed package receipt changed")
         for key in ("training_archive", "evidence_archive"):
             require(sha256_file(Path(receipt[key]["path"])) == receipt[key]["sha256"], "Completed archive changed")
+        shared = receipt.get("shared_session")
+        if shared is not None:
+            from .session_processing import verify_archive
+            shared_path = Path(shared["receipt"])
+            require(sha256_file(shared_path) == shared["receipt_sha256"], "Completed shared session receipt changed")
+            identity = (str(shared_path.resolve()), shared["receipt_sha256"])
+            if identity not in shared_verified:
+                verify_archive(read_json(shared_path))
+                shared_verified.add(identity)
         with zipfile.ZipFile(receipt["training_archive"]["path"]) as archive:
             for line in archive.read("samples.jsonl").splitlines():
                 seen.add(sample_key(json.loads(line)["sample"]))
         work = root/"work"/segment_id
         if work.exists():
             release_work(work, receipt, root)
-    from .demo_pipeline import run_pipeline
-    return run_pipeline(root, plan, progress, tools, seen, stop=stop, emit=emit,
-                        validation_workers=validation_workers, max_segments=max_segments)
+    from .demo_pipeline import run_pipeline, worker_count
+    from .recording_session import prepare_recordings
+    from .session_processing import release_completed_sessions
+    release_completed_sessions(root, progress)
+    worker_count(validation_workers)
+    jobs = prepare_recordings(root, plan, progress, tools, stop=stop, emit=emit, max_segments=max_segments)
+    if jobs is None:
+        return progress
+    from .immutable_evidence import hold_files
+    from .session_processing import shared_data_files
+    with hold_files(shared_data_files(root)):
+        result = run_pipeline(root, plan, progress, tools, seen, stop=stop, emit=emit,
+                            validation_workers=validation_workers, max_segments=max_segments, session_jobs=jobs)
+    release_completed_sessions(root, progress)
+    return result
 
 
 def run_queue(task, queue_path, *, validation_workers=2):
@@ -366,7 +388,8 @@ def run_queue(task, queue_path, *, validation_workers=2):
                     task.log(message); task.emit("status", message)
                     current = read_json(root/"progress.json")
                     job.update(completed_segments=sum(v["status"] == "complete" for v in current["segments"].values()),
-                               accepted_samples=current["accepted_samples"], pipeline=current.get("pipeline", {}))
+                               accepted_samples=current["accepted_samples"], pipeline=current.get("pipeline", {}),
+                               status=current.get("status", "processing"))
                     save_settings(queue_path, doc); task.emit("queue", str(queue_path))
 
                 progress = run_demo(root, stop=task.stop, emit=update, validation_workers=validation_workers)

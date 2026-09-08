@@ -19,13 +19,16 @@ OVERRIDE_RESOURCE_SHA256 = "3c29e34ae294676cb9d9e7dd8c6ec675484db72171020d9dfe60
 HUD_RESOURCE = "panorama/styles/hud/hudhealthammocenter.vcss_c"
 
 
-def _expected_setup():
+def _expected_setup(session=False):
+    from .session_profile import PROFILE, PLUGIN_SHA256 as SESSION_PLUGIN_SHA256
+    plugin_sha = SESSION_PLUGIN_SHA256 if session else PLUGIN_SHA256
     return {
+        **({"recording_session": {"profile": PROFILE}} if session else {}),
         "renderer_profile": RENDERER_PROFILE,
         "binary_profile": dict(get_native_replay_profile(CURRENT_PROFILE)["binary_profile"]),
-        "plugin_sha256": PLUGIN_SHA256,
-        "plugin_source_sha256": PLUGIN_SHA256,
-        "plugin_staged_sha256": PLUGIN_SHA256,
+        "plugin_sha256": plugin_sha,
+        "plugin_source_sha256": plugin_sha,
+        "plugin_staged_sha256": plugin_sha,
         "fps": 32,
         "capture_method": "native-windows-cs2-startmovie-tga",
         "hud_profile": {"raw_frames_masked": False},
@@ -66,7 +69,7 @@ def trusted_hud_policy(render):
     manual review registration. Future renderers or HUD resources are outside
     this version's scope, even if their manifest claims visual acceptance.
     """
-    setup = _expected_setup()
+    setup = _expected_setup(isinstance(render, dict) and "recording_session" in render)
     compatible = _matching_setup(render, setup)
     return {
         "profile": POLICY_PROFILE,
@@ -90,4 +93,4 @@ def policy_allows_capture(policy):
         policy.get("status") == "trusted_capture_setup" and
         policy.get("basis") == "user_approved_capture_setup" and policy.get("scope") == POLICY_SCOPE and
         policy.get("visual_review_performed") is False and policy.get("reason_codes") == [] and
-        _matching_setup(policy.get("capture_setup"), _expected_setup()))
+        any(_matching_setup(policy.get("capture_setup"), _expected_setup(session)) for session in (False, True)))

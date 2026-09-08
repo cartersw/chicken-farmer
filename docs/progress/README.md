@@ -2,9 +2,17 @@
 
 This folder tracks completed work, verification, blockers, and the remaining CS2 vision imitation-learning milestones.
 
-**Parallel processing:** The Demo queue overlaps recording with 1-4 validation
-processes (default 2) and ordered lossless compression. Backlog limits,
-graceful draining and capture reuse on resume are implemented. See
+**Recording sessions:** [one session per demo/player](../RECORDING_SESSION_DESIGN.md)
+is now the default queue workflow. CS2 stays open through forward playback;
+training-file splits do not restart recording. Native endpoints, shared timing
+evidence, whole-session disk estimates and capture-first recovery are implemented.
+Live verification is recorded under `data/validation/recording-session-001` and
+`data/validation/recording-session-full-001`; see the
+[implementation and test record](RECORDING_SESSION_2026_09_08.md).
+
+**Parallel processing:** After all recording closes, the Demo queue uses 1-4
+validation processes (default 2) and ordered lossless compression. Backlog limits,
+graceful draining and capture reuse on resume remain implemented. See
 [full-demo processing](../FULL_DEMO_PROCESSING.md#queue-and-recovery).
 
 **New full-demo queue:** [Demo Processor](../DESKTOP_APP.md) now queues a complete

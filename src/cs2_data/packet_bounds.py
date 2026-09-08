@@ -9,6 +9,10 @@ caller obligations. No result grants training readiness.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from bisect import bisect_right
+import hashlib
+import json
+from .session_evidence import SessionLedger, events, endpoints, audit_cached
 from typing import Any
 from .native_replay_profile import LEGACY_PROFILE, get_native_replay_profile, header_matches_profile
 
@@ -123,6 +127,17 @@ class _Audit:
         self.profile = profile
         self.global_reasons = set()
         self.commands, self.source_packets, self.source_index, self.filtered_index, self.prefix_clocks = _source(source, profile)
+        self.command_ticks = [c["demo_tick"] for c in self.commands]
+        self.nonordinary = [0]
+        self.bad_prior = []
+        bad = set()
+        for c in self.commands:
+            self.nonordinary.append(self.nonordinary[-1] + (c["demo_command_kind"] != 7))
+            if c["demo_tick"] >= 0 and c["demo_command_kind"] not in (7, 13):
+                bad.add("unsupported_prior_nonpacket_demo_command")
+            elif c["demo_tick"] < 0 and c["demo_command_kind"] not in (1, 3, 4, 5, 6, 7, 8, 18):
+                bad.add("unsupported_bootstrap_demo_command")
+            self.bad_prior.append(frozenset(bad))
         self.states = [{"read_invocations": 0, "last_completed_read_invocation": 0,
                        "reads_in_flight": 0, "active_read_invocation": None, "returned_packets": 0,
                        "null_returns": 0, "latest_returned_packet": None,
@@ -139,7 +154,7 @@ class _Audit:
         self._reads()
 
     def _header(self):
-        headers = [r for r in self.records if r.get("event") == "header"]
+        headers = list(events(self.records, ("header",)))
         if len(headers) != 1:
             self.global_reasons.add("missing_or_duplicate_native_header")
             return
@@ -154,7 +169,7 @@ class _Audit:
                     "packet_byte_count_offset": 116, "selected_source_tick_offset": 556,
                     "payload_hash": "SHA256_exact_returned_network_packet_bytes"})):
             self.global_reasons.add("unsupported_native_packet_contract")
-        installs = [r for r in self.records if r.get("event") == "demo_packet_hook_installed"]
+        installs = list(events(self.records, ("demo_packet_hook_installed",)))
         if (len(installs) != 1 or not _same(installs[0].get("thread_id"), self.thread)
                 or not _subset(installs[0].get("packet_trace"), self.states[0])
                 or installs[0]["packet_trace"].get("healthy") is not True):
@@ -162,7 +177,7 @@ class _Audit:
 
     def _reads(self):
         pairs = defaultdict(dict)
-        for row in self.records:
+        for row in events(self.records, ("demo_packet_read",)):
             if row.get("event") != "demo_packet_read":
                 continue
             number, phase = row.get("read_invocation"), row.get("phase")
@@ -309,8 +324,7 @@ class _Audit:
         maximum = self.max_indices[end]
         selected = self.latest_matches[end]
         upper_tick = max(self.max_scheduling_ticks[end], self.states[end]["process_lifetime_max_returned_source_demo_tick"] or -1)
-        covered = [i for i, c in enumerate(self.commands) if c["demo_tick"] <= upper_tick]
-        prefix_index = max(covered, default=-1)
+        prefix_index = bisect_right(self.command_ticks, upper_tick)-1
         maximum = max(maximum, prefix_index)
         if upper_tick > self.source["through_demo_tick"] or maximum < 0:
             reasons.add("source_prefix_does_not_cover_observed_history")
@@ -320,17 +334,10 @@ class _Audit:
             reasons.add("capture_latest_packet_is_not_ordinary_source_packet")
         if selected is not None:
             start = selected["source_command_index"]
-            next_commands = self.commands[start + 1:maximum + 2]
-            if any(c["demo_command_kind"] != 7 for c in next_commands):
+            if self.nonordinary[min(maximum+2, len(self.commands))] > self.nonordinary[start+1]:
                 reasons.add("nonordinary_demo_command_at_capture_boundary")
-        for c in self.commands[:maximum + 1]:
-            if c["demo_tick"] >= 0 and c["demo_command_kind"] not in (7, 13):
-                reasons.add("unsupported_prior_nonpacket_demo_command")
-            # Exact engine queue-refill switch2d6f4[18+1] ->2d254 skips
-            # Recovery18 payload with reader(data=null,length) at2d2d0..2d2dc;
-            # it neither constructs a protobuf nor dispatches client data.
-            elif c["demo_tick"] < 0 and c["demo_command_kind"] not in (1, 3, 4, 5, 6, 7, 8, 18):
-                reasons.add("unsupported_bootstrap_demo_command")
+        if maximum >= 0:
+            reasons.update(self.bad_prior[maximum])
         for number in numbers:
             state = self.return_rows[number].get("player_state_after", {}) if number else {}
             if not _subset(state, {"seek_target_0x208": -1, "pending_seek_0x18c0": -1, "alternate_gate_flag_0x18a2": 0}):
@@ -358,7 +365,15 @@ class _Audit:
                 "upper_source_demo_tick": None, "upper_server_tick": None, **values}
 
 
-def audit_packet_bounds(records: list[dict[str, Any]], source: dict[str, Any], *,
+def audit_packet_bounds(records, source, *, native_profile=LEGACY_PROFILE):
+    if not isinstance(records, SessionLedger):
+        return _audit_packet_bounds(records, source, native_profile=native_profile)
+    source_key = hashlib.sha256(json.dumps(source, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    return audit_cached("packets", records, (source_key, native_profile),
+                        lambda: _audit_packet_bounds(records, source, native_profile=native_profile))
+
+
+def _audit_packet_bounds(records: list[dict[str, Any]], source: dict[str, Any], *,
                         native_profile=LEGACY_PROFILE) -> dict[str, Any]:
     """Recompute packet prefix bounds; the caller must freshly scan the .dem.
 
@@ -367,10 +382,10 @@ def audit_packet_bounds(records: list[dict[str, Any]], source: dict[str, Any], *
     An unknown row's numeric ceiling is diagnostic only and must not be accepted.
     """
     profile = get_native_replay_profile(native_profile)
-    if not isinstance(records, list) or len(records) > 1000000 or any(not isinstance(r, dict) for r in records):
+    if not isinstance(records, SessionLedger) and (not isinstance(records, list) or len(records) > 1000000 or any(not isinstance(r, dict) for r in records)):
         raise ValueError("Packet audit exceeds bounded record count")
-    movies = [r for r in records if r.get("event") == "movie_frame"]
-    ends = [r for r in records if r.get("event") == "movie_end"]
+    movies = list(events(records, ("movie_frame",)))
+    ends = endpoints(records)
     try:
         auditor = _Audit(records, source, profile)
     except (ValueError, KeyError, TypeError) as exc:
@@ -379,7 +394,7 @@ def audit_packet_bounds(records: list[dict[str, Any]], source: dict[str, Any], *
                 "frames": [_Audit.result(r, {reason}) for r in movies], "endpoint": None,
                 "summary": {"verified_frames": 0, "unknown_frames": len(movies)}}
     pixels = defaultdict(list)
-    for row in records:
+    for row in events(records, ("pixel_readback",)):
         if row.get("event") == "pixel_readback" and isinstance(row.get("submission_candidate"), dict):
             candidate = row["submission_candidate"]
             pixels[(candidate.get("movie_name"), candidate.get("capture_index"))].append(row)

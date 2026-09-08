@@ -58,7 +58,17 @@ def record_segment(root, plan, segment, tools):
     return str(work)
 
 
-def validate_segment(work, segment_id, tools):
+def validate_segment(work, segment_id, tools, session_job=None):
+    from .session_processing import index_files, retained_work_index
+    from .immutable_evidence import retain_files
+    index = session_job["index"] if session_job is not None else retained_work_index(work)
+    if index is not None:
+        retain_files(index_files(index))
+    if session_job is not None:
+        from .session_processing import materialize_segment
+        root = Path(session_job["root"])
+        work = materialize_segment(root, read_json(root/"demo_plan.json"), session_job["segment"],
+            session_job["index"], tools, Path(session_job["receipt"]))
     _run_stage(Path(work), segment_id, tools, "process", "accepted_partition_verified")
 
 
@@ -85,7 +95,7 @@ def captured_work(root, segment_id):
     return None
 
 
-def run_pipeline(root, plan, progress, tools, seen, *, stop, emit, validation_workers, max_segments=None):
+def run_pipeline(root, plan, progress, tools, seen, *, stop, emit, validation_workers, max_segments=None, session_jobs=None):
     from .full_demo import now, pack_segment, release_work, write_report
     count = worker_count(validation_workers)
     # Includes the recorder, validators, waiting clips, and the current archive.
@@ -170,7 +180,10 @@ def run_pipeline(root, plan, progress, tools, seen, *, stop, emit, validation_wo
                     state = progress["segments"][key]
                     if state["status"] == "recorded" and validating < count:
                         state.update(status="validating", validate_started_at=now())
-                        futures[validators.submit(validate_segment, str(item["work"]), key, tools)] = ("validate", key)
+                        args = (str(item["work"]), key, tools)
+                        if session_jobs is not None:
+                            args += (session_jobs.get(key),)
+                        futures[validators.submit(validate_segment, *args)] = ("validate", key)
                         validating += 1
                         persist(describe(key, "validating frames, timing and action targets"))
                 # One archiver consumes the earliest outstanding segment. Later
@@ -191,6 +204,10 @@ def run_pipeline(root, plan, progress, tools, seen, *, stop, emit, validation_wo
                     segment = pending[0]
                     key = segment["id"]
                     work = captured_work(root, key)
+                    if session_jobs is not None and work is None:
+                        if key not in session_jobs:
+                            raise ValueError("Recording barrier missing a segment; refusing a per-clip game launch")
+                        work = root/"work"/key
                     if work is None and shutil.disk_usage(root).free < MIN_FREE_BYTES:
                         low_disk = True
                         break

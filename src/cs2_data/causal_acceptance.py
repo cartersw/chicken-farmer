@@ -204,7 +204,8 @@ def _command_source(row, by_key):
 
 def _scan_through(records, frames):
     ticks = [frame["source_demo_tick_end"] for frame in frames]
-    for row in records:
+    from .session_evidence import SessionLedger
+    for row in records.capture if isinstance(records, SessionLedger) else records:
         if row.get("event") == "demo_packet_read" and row.get("phase") == "return" and row.get("source_demo_tick") is not None:
             ticks.append(row["source_demo_tick"])
         for snapshot in (row.get("packet_trace"), row.get("native_clock", {}).get("packet_trace"),

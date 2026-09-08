@@ -60,7 +60,9 @@ def adapt_source(source: str) -> str:
             '#include "hook_fallback.inc"\n\n'
             'bool Connect(IAppSystem* appSystem, CreateInterfaceFn factoryFn)')
     replace('void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)',
+            'namespace ChickenSession { void Frame(const json& row); }\n'
             '#include "capture_trace.inc"\n'
+            '#include "session_capture.inc"\n'
             '#include "settings_isolation.inc"\n'
             '#include "calibration_trace.inc"\n\n'
             'void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)')
@@ -75,6 +77,10 @@ def adapt_source(source: str) -> str:
             '                    ChickenCapture::ObserveCommand(action.cmd, "before");\n'
             '                    engine->ExecuteClientCmd(0, action.cmd.c_str(), true);\n'
             '                    ChickenCapture::ObserveCommand(action.cmd, "after");')
+    replace('    {\n        std::lock_guard<std::mutex> lock(sequencesMutex);\n        if (newTick != currentTick',
+            '    if (ChickenSession::Step(engine, newTick)) {\n'
+            '        originalFrameStageNotify(thisptr, stage);\n        return;\n    }\n\n'
+            '    {\n        std::lock_guard<std::mutex> lock(sequencesMutex);\n        if (newTick != currentTick')
     replace('    return result;\n}\n\n\nvoid Shutdown()',
             '    StartClientHookFallback();\n'
             '    return result;\n}\n\n\nvoid Shutdown()')
@@ -253,6 +259,7 @@ def main() -> None:
     (args.output / "cdll_interfaces.h").write_text(header, encoding="utf-8", newline="\n")
     (args.output / "hook_fallback.inc").write_bytes(fallback)
     (args.output / "capture_trace.inc").write_bytes(Path(__file__).with_name("capture_trace.inc").read_bytes())
+    (args.output / "session_capture.inc").write_bytes(Path(__file__).with_name("session_capture.inc").read_bytes())
     (args.output / "observation_trace.inc").write_bytes(Path(__file__).with_name("observation_trace.inc").read_bytes())
     (args.output / "clock_trace.inc").write_bytes(Path(__file__).with_name("clock_trace.inc").read_bytes())
     (args.output / "packet_trace.inc").write_bytes(Path(__file__).with_name("packet_trace.inc").read_bytes())

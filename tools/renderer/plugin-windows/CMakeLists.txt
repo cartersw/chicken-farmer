@@ -28,6 +28,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_LIST_DIR}/prepare_source.py"
     "${CMAKE_CURRENT_LIST_DIR}/hook_fallback.inc"
     "${CMAKE_CURRENT_LIST_DIR}/capture_trace.inc"
+    "${CMAKE_CURRENT_LIST_DIR}/session_capture.inc"
     "${CMAKE_CURRENT_LIST_DIR}/observation_trace.inc"
     "${CMAKE_CURRENT_LIST_DIR}/clock_trace.inc"
     "${CMAKE_CURRENT_LIST_DIR}/packet_trace.inc"

@@ -335,3 +335,14 @@ def test_trusted_display_status_does_not_claim_sample_acceptance(ui, monkeypatch
     ui.load_batch(path)
     assert ui.batch_tree.item("job", "values")[-1] == "ready for acceptance"
     assert "accepted samples: 0" in ui.batch_text.get()
+
+
+@pytest.mark.parametrize("phase", ["recording", "indexing_session", "archiving_session"])
+def test_queue_displays_capture_phase_before_validation_counts_exist(ui, monkeypatch, phase):
+    from cs2_data import full_demo
+    monkeypatch.setattr(full_demo, 'load_queue', lambda p: {'jobs': [{'id':'one','demo':'match.dem',
+        'player_name':'Player','status':phase,'pipeline':{'phase':phase,'recorded_segments':2,'total_segments':8}}]})
+    ui.refresh_queue()
+    assert '2/8 segments captured' in ui.queue_text.get()
+    assert 'validation starts after recording' in ui.queue_text.get()
+    assert not ui.test_errors

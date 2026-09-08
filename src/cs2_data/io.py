@@ -113,6 +113,10 @@ def versioned_schema(fields: list[tuple[str, pa.DataType]], stage: str, demo_id:
 
 
 def sha256_file(path: Path) -> str:
+    from .immutable_evidence import guarded_digest
+    guarded = guarded_digest(path)
+    if guarded is not None:
+        return guarded
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):

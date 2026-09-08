@@ -159,6 +159,10 @@ def _source_support(source, watch):
 
 
 def _render_contract(render, render_path, records, watch):
+    from .session_evidence import SessionLedger, lifecycle_root
+    from .session_profile import PLUGIN_SHA256 as SESSION_PLUGIN_SHA256
+    run = lifecycle_root(render, records, render_path.parent, watch)
+    plugin_sha = SESSION_PLUGIN_SHA256 if isinstance(records, SessionLedger) else PLUGIN_SHA256
     profile = get_native_replay_profile(CURRENT_PROFILE)
     _require(render.get("renderer_profile") == RENDERER_PROFILE and render.get("fps") == 32 and
         render.get("capture_method") == "native-windows-cs2-startmovie-tga", "Unsupported competitive render contract")
@@ -167,10 +171,10 @@ def _render_contract(render, render_path, records, watch):
         watch(RENDER_BINARIES/relative, expected)
     _require(records and header_matches_profile(records[0], native_profile=CURRENT_PROFILE), "Native ledger profile disagrees with current replay contract")
     for key in ("plugin_sha256", "plugin_source_sha256", "plugin_staged_sha256"):
-        _require(render.get(key) == PLUGIN_SHA256, "Unreviewed native competitive plugin bytes")
+        _require(render.get(key) == plugin_sha, "Unreviewed native competitive plugin bytes")
     sandbox = Path(render.get("archived_game_mod_dir", "")).resolve()
-    _require(sandbox.is_relative_to(render_path.parent.resolve()), "Native plugin archive escapes its render run")
-    watch(sandbox/"bin/win64/server.dll", PLUGIN_SHA256)
+    _require(sandbox.is_relative_to(run.resolve()), "Native plugin archive escapes its render run")
+    watch(sandbox/"bin/win64/server.dll", plugin_sha)
     watch(PROFILE_COMPARISON, PROFILE_COMPARISON_SHA256)
     comparison = read_json(PROFILE_COMPARISON)
     for module in comparison["modules"].values():
@@ -179,7 +183,7 @@ def _render_contract(render, render_path, records, watch):
         all(render.get(key) is True for key in ("settings_restored", "gameinfo_restored", "staged_plugin_removed_from_game")) and
         "-insecure" in render.get("launch_arguments", []) and "-chicken-competitive-replay" in render["launch_arguments"],
         "Protected competitive capture did not finish its scoped lifecycle")
-    protection = _protected_archive(render, render_path.parent, watch)
+    protection = _protected_archive(render, run, watch)
     override = render.get("hud_override", {})
     relative = Path(override.get("staged_relative_path", ""))
     resource = (sandbox/relative).resolve()
@@ -195,7 +199,7 @@ def _render_contract(render, render_path, records, watch):
     _require(override.get("installed_resources_modified") is False and override.get("raw_frames_masked") is False and
         render.get("hud_profile", {}).get("raw_frames_masked") is False, "Competitive raw-frame HUD provenance is unsupported")
     return {"native_profile": CURRENT_PROFILE, "binary_profile": dict(profile["binary_profile"]),
-        "plugin_sha256": PLUGIN_SHA256, "renderer_profile": RENDERER_PROFILE,
+        "plugin_sha256": plugin_sha, "renderer_profile": RENDERER_PROFILE,
         "profile_comparison_sha256": PROFILE_COMPARISON_SHA256, "hud_override_sha256": override_digest,
         "hud_delivery_files": delivery_files,
         "protected_capture_policy": protection,
@@ -292,7 +296,8 @@ def _indexed(rows, key, count, description):
 def _frame_proofs(frames, inventory, records, synchronization, bounds, render, hud):
     count = len(frames)
     hud_setup_allowed = policy_allows_capture(hud)
-    movies = _indexed([r for r in records if r.get("event") == "movie_frame"], "capture_index", count, "native movie identity")
+    from .session_evidence import events
+    movies = _indexed(list(events(records, ("movie_frame",))), "capture_index", count, "native movie identity")
     native = _indexed([r for r in synchronization["native_message_clock_audit"]["frames"] if r.get("event") == "movie_frame"],
         "frame_index", count, "native clock identity")
     pov = _indexed(synchronization["pov_evidence"], "frame_index", count, "native POV identity")
@@ -368,7 +373,7 @@ def recompute_competitive_replay_proof(parsed: Path, dataset: Path, network_cloc
     # Revalidation depends on these implementations as well as retained data.
     for name in ("competitive_replay_proof", "competitive_control", "competitive_source_verification", "competitive_buttons", "command_reverification", "control_labels", "control_label_audit",
         "causal_acceptance", "acceptance", "clock_evidence", "packet_evidence", "packet_bounds", "native_replay_profile",
-        "synchronization", "timing", "validation", "jobs", "io", "normalize", "server_command_support", "hud_policy"):
+        "synchronization", "timing", "validation", "jobs", "io", "normalize", "server_command_support", "hud_policy", "session_profile", "session_evidence", "recording_session", "immutable_evidence"):
         watch(Path(__file__).with_name(name+".py"))
     for path in (parsed/"manifest.json", dataset/"timing/clip.json", dataset/"timing/frames.jsonl", network_clock, state_context):
         watch(path)

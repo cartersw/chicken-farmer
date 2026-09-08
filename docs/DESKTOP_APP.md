@@ -29,37 +29,41 @@ is not required for the double-click launcher.
 3. Click **Queue entire demo**. Repeat for other demo/player entries if needed.
 4. In **Demo queue**, keep **Validation workers** at **2** initially (1-4 are
    available), then click **Start / resume queue** once. Preprocessing discovers
-   all eligible rounds. One recorder continues while separate CPU workers
-   validate previous clips and an archive worker compresses them. The queue
-   shows recording, validation, waiting and compression counts.
+   all eligible rounds and estimates whole-session storage. CS2 records the
+   selected player in one session, then closes. Shared evidence is compressed;
+   separate CPU workers validate clips and prepare lossless training shards.
 5. **Open coverage report** shows planned intervals, excluded time, completion,
    accepted examples, rejected examples and their reason counts.
 
 The queue includes ordinary alive round progression and combat. It excludes
 setup/warmup, freeze time, pauses, dead time and unsupported source intervals.
-Capture segments last up to two minutes and stop at eligibility boundaries;
+Training segments last up to two minutes and stop at eligibility boundaries;
 they are internal work units and require no manual advance or HUD review.
 Overlapping history at internal splits is deduplicated by action target identity.
+CS2 keeps recording across those internal file splits. Native recording starts
+and stops follow the source eligibility schedule within the same game process.
 Short final tails are redistributed rather than discarded. All exclusions are
 recorded. See [FULL_DEMO_PROCESSING.md](FULL_DEMO_PROCESSING.md) for exact rules.
 
 The persistent queue is `<Output>/full-demo-queue/queue.json`. Each entry has a
 coverage report and progress journal under `jobs/<id>/`. Completed segments
-retain lossless `training.zip` and `evidence.zip` packages; their temporary raw
-working files and staged demo copy are released only after archive verification.
+retain lossless `training.zip` and `evidence.zip` packages. Original native frames
+and timing logs live once in `session-packages`, referenced by each clip receipt.
+Temporary raw files and the staged demo are released after archive verification
+and completion of every dependent training segment.
 The original demo and shared parsed source are retained. Changing Output selects
 another queue; returning to the original folder restores its entries.
 
-**Stop after current step** stops new captures, finishes the active recording,
-and drains already captured clips through acceptance, compression and cleanup.
+During recording, **Stop after current step** finishes the active physical
+recording interval and closes CS2. Validation waits until resume. During
+validation, Stop drains admitted clips through acceptance and compression.
 Closing the busy launcher
 requests that same graceful stop. Reopen it and use **Start / resume queue** to
-continue. Completed segments are verified and skipped. Low disk space pauses
-before the next capture; source or processing failures retain their journal and
-show **needs attention**. A running queue uses one CS2 instance at a time. CS2
-still reopens per capture, but it no longer waits for the prior clip's full
-validation/compression chain. The backlog is capped at one more clip than the
-validation worker count; the default allows three clips in progress.
+continue. Closed recordings and completed packages are reused. Insufficient
+whole-session storage or source/processing failures retain a specific diagnostic
+under **needs attention**. A resumed recording starts a fresh CS2 session only
+for missing intervals. Validation backlog is capped at one more clip than the
+worker count; all recorded raw data remains on disk until safely packaged.
 
 ### Prepare sources or plan sample captures
 

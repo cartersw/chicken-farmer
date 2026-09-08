@@ -77,3 +77,12 @@ def test_generic_approval_or_another_scope_is_not_the_named_policy(render, field
 def test_malformed_input_does_not_claim_setup_compatibility(value):
     assert not policy.policy_allows_capture(policy.trusted_hud_policy(value))
     assert not policy.policy_allows_capture(value)
+
+
+def test_session_plugin_uses_same_fixed_hud_setup_without_visual_review():
+    setup = policy._expected_setup(session=True)
+    receipt = policy.trusted_hud_policy(setup)
+    assert policy.policy_allows_capture(receipt)
+    assert receipt['visual_review_performed'] is False
+    setup['recording_session']['profile'] = 'unregistered-session'
+    assert not policy.policy_allows_capture(policy.trusted_hud_policy(setup))

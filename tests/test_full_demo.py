@@ -80,6 +80,15 @@ def run_fixture(tmp_path, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     import queue
     from cs2_data import demo_pipeline
+    from cs2_data import recording_session
+    # These tests exercise the existing bounded coordinator in isolation. The
+    # default session capture barrier is covered in test_recording_session.py.
+    monkeypatch.setattr(recording_session, "prepare_recordings", lambda *a, **k: {})
+    pipeline = demo_pipeline.run_pipeline
+    def legacy_coordinator(*args, **kwargs):
+        kwargs.pop("session_jobs", None)
+        return pipeline(*args, **kwargs)
+    monkeypatch.setattr(demo_pipeline, "run_pipeline", legacy_coordinator)
     @contextmanager
     def workers(count):
         with ThreadPoolExecutor(1) as recorder, ThreadPoolExecutor(count) as validators, ThreadPoolExecutor(1) as archiver:
@@ -138,6 +147,26 @@ def test_unattended_run_continues_all_segments_and_resume_never_recaptures(run_f
     assert prepared == packed == released == ["0", "1"]
     full.run_demo(root)
     assert prepared == ["0", "1"]
+
+
+def test_completed_session_dependency_is_checked_on_resume(run_fixture):
+    from cs2_data.session_profile import PROFILE
+    root, prepared, _, _ = run_fixture
+    progress = full.run_demo(root)
+    shared_zip = root/'shared.zip'; shared_zip.write_bytes(b'original archive')
+    shared_receipt = root/'shared-receipt.json'
+    save_settings(shared_receipt, {'profile':PROFILE,'status':'compressed',
+        'archive':{'path':str(shared_zip),'sha256':sha256_file(shared_zip)}})
+    record = progress['segments']['0']
+    receipt = read_json(Path(record['receipt']))
+    receipt['shared_session']={'receipt':str(shared_receipt),'receipt_sha256':sha256_file(shared_receipt)}
+    save_settings(Path(record['receipt']),receipt)
+    record['receipt_sha256']=sha256_file(Path(record['receipt']))
+    save_settings(root/'progress.json',progress)
+    shared_zip.write_bytes(b'changed archive')
+    with pytest.raises(ValueError,match='Shared recording archive changed'):
+        full.run_demo(root)
+    assert prepared == ['0','1']
 
 
 def test_stop_finishes_packaging_current_segment_then_resume_continues(run_fixture):

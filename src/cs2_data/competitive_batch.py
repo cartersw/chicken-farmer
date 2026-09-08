@@ -325,10 +325,12 @@ def _verify_render(out, item):
         inventory.append({"path": str(image), "sha256": frame["sha256"]})
     _require(verify_readback_pixels(records, inventory)["verified"] is True, "Native pixel correspondence missing")
     worker = _worker()
-    isolation = worker.verify_settings_isolation(out, expected_pid=render["owned_cs2_pid"])
+    from .session_evidence import lifecycle_root
+    run = lifecycle_root(render, records, out)
+    isolation = worker.verify_settings_isolation(run, expected_pid=render["owned_cs2_pid"])
     _require(_bytes(isolation) == _bytes(render["settings_isolation"]), "Settings isolation manifest mismatch")
     from .competitive_replay_proof import _protected_archive
-    watched = {}; _protected_archive(render, out, lambda p, expected=None: _watch(watched, p, expected))
+    watched = {}; _protected_archive(render, run, lambda p, expected=None: _watch(watched, p, expected))
     _verify_hashes(watched)
     return {"status": "verified_render_artifacts", "render_manifest": str(path), "clip_id": render["clip_id"],
             "frame_count": render["num_frames"], "training_ready": False}

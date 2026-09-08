@@ -5,6 +5,10 @@ and automatically processes every eligible interval for one selected player.
 It does not run a trainer. The previous sample-batch limits remain local to the
 sample-capture workflow.
 
+The default is [one recording session per demo/player](RECORDING_SESSION_DESIGN.md).
+CS2 records all planned intervals before parallel validation begins. The sample
+capture tab retains its separate bounded single-clip workflow.
+
 ## Output contract
 
 The versioned `cs2-full-player-demo-v1` profile requires **640x360, full-color
@@ -19,9 +23,13 @@ Each completed segment publishes:
   frame members, a manifest, accepted sample metadata, projected targets/masks
   and an explicit duplicate-target exclusion list. Each decompressed frame is
   exactly 691,200 bytes, or 675 KiB. ZIP64 supports larger archives.
-- `evidence.zip`: losslessly compressed original TGA files, capture/process
-  evidence, timing results, accepted/rejected partitions, logs and journals.
-  `archive_index.json` records original paths, sizes and SHA-256 hashes.
+- `evidence.zip`: clip processing evidence, timing results and accepted/rejected
+  partitions. Its index references the shared session archive for original TGA
+  images, native timing/packet history, settings and game lifecycle evidence.
+  Original native frames and the common log are compressed once per session.
+- `session-packages/<session>/receipt.json` and `evidence-*.zip`: the lossless
+  shared session archive, including the native ledger, SQLite index and frames.
+  Clip receipts identify this dependency by path and SHA-256.
 - `receipt.json`: format, archive hashes, acceptance identity, frame/sample
   counts, rejection reasons and storage totals. A receipt is published only
   after both compression round trips pass.
@@ -36,7 +44,9 @@ Only newly created queue working directories are released, after verifying both
 archives and any shared demo references. Existing captures are not migrated or
 removed. Retain the original demo and parsed source alongside the packages.
 For a forensic reconstruction, extract evidence back to its recorded original
-workspace and restore omitted staged demo references from the unchanged source;
+workspace, extract the referenced shared session archive to its recorded root,
+restore each clip's frame references from the shared archive index, and restore
+omitted staged demo references from the unchanged source;
 the historical proof files contain absolute paths. Normal training reads the
 RGB shard directly and does not unpack the evidence archive.
 
@@ -74,43 +84,48 @@ One persistent queue owns its output directory; a project lock prevents two
 full-demo queues from capturing simultaneously. Entries run in queue order.
 There is no 20-second manual advance or session time/clip-count limit.
 
-The recorder hands completed captures to independent validation processes and
-immediately records the next segment when backlog space is available. The UI's
-**Validation workers** setting accepts 1-4 and defaults to **2**. Each validator
-runs frame/action processing, timing alignment and numerical acceptance for one
-clip. Processes isolate their tool paths and proof state and can use separate
-CPU cores; each limits Arrow to two compute and two I/O threads. The GPU renders
-CS2; these validation steps currently run on the CPU.
+The recording schedule joins overlapping training shards into physical recording
+intervals. Short excluded gaps can remain inside a recording; only explicitly
+eligible frame ranges become training shards. There is one initial seek, then
+forward playback, native start/stop acknowledgements and one final game exit.
+A missed boundary, wrong player, frame-counter discontinuity or tick regression
+stops the attempt and retains evidence. No timing offset is invented to recover it.
 
-One archive worker runs alongside recording and validation. It publishes clips
-in source order so duplicate action targets receive deterministic ownership,
-even when later validations finish first. Each frame remains losslessly
-compressed RGB8; validation and archive integrity requirements are unchanged.
+After capture closes and settings are restored, the app indexes and compresses
+shared native evidence. The UI's **Validation workers** setting accepts 1-4 and
+defaults to **2**. Each worker prepares bounded logical clips, encodes a diagnostic
+preview, verifies frames and inputs, and runs numerical acceptance. Native clock
+and packet invocation IDs retain their full process history across movie starts.
+A logical shard endpoint references a real subsequent frame or native endpoint;
+it never claims that CS2 stopped recording at a training-file split.
 
-At most `validation_workers + 1` clips are in progress, including recording,
-validation, waiting and compression (**three** at the default setting). A slot
-is released only after verified archives are published and raw work is cleaned
-up. Captures remain bounded to two minutes and need at least 15 GB free before
-starting. If space is low, existing work drains first; the queue pauses if space
-remains insufficient. The activity view reports concurrent stage counts.
+One archive worker publishes validated RGB shards in source order so duplicate
+action targets receive deterministic ownership. At most `validation_workers + 1`
+clips are admitted to validation/compression at a time. All already recorded raw
+data remains on disk until its dependent shards are safely packaged. Original
+TGA files are stored once in the session evidence archive, and training pixels
+remain individually addressable, losslessly compressed RGB8 members.
 
-There is still only one CS2 recorder, and CS2 still exits and reopens for each
-capture. Validation consumes archived capture evidence and never launches,
-recovers or requires an idle game. Removing per-capture game startup is a
-separate improvement. Additional workers can compete for RAM and disk bandwidth;
-raising the setting is not a guarantee of proportional speedup.
+Before launch the app estimates the whole recording's raw frames, bounded native
+logs, staged demo, index/archive workspace and a 15 GB reserve. At this baseline,
+raw BGRA capture uses about 1.77 GB per recorded minute. The live recorder monitors
+free space and log size, requests an orderly stop when limits approach, and uses
+an emergency bound for a stalled process or critically low disk space. Recording
+first needs more temporary disk than the old rolling capture pipeline.
 
-Stop prevents new captures, finishes the active recording and drains all admitted
-clips through validation, compression and cleanup. Resume verifies
-the immutable plan/source and completed archives, rebuilds duplicate-target
-membership, skips completed segments and resumes unfinished batch stages using
-their journals. Saved completed captures go directly to validation without
-recapture. Interrupted preprocessing and package attempts remain inspectable.
-A cleanup failure preserves the completed package receipt; resume retries cleanup
-without recapturing it. Processing errors stop the queue with a specific error,
-without silently accepting or skipping failed data. Active workers finish and
-later captured clips remain available for resume; failed segments are never
-skipped to publish a later archive.
+During capture, **Stop** finishes the current physical recording interval, observes
+its endpoint, closes CS2 and saves progress. Heavy validation is deferred until
+resume. During validation, Stop drains admitted work and preserves the remaining
+recordings. Resume verifies immutable source/plan bindings and saved archives,
+reuses closed recordings, and captures only still-missing intervals in a new
+session. A failed native session remains retained for investigation and is never
+treated as accepted training data. Replaying earlier ticks requires a fresh process.
+
+Completed package receipts are saved before cleanup. The common session workspace
+is released only after every dependent segment has verified training/evidence
+archives. Cleanup can resume after interruption. Old completed packages remain
+usable; existing capture files outside this queue are not migrated or deleted.
+The original demo and parsed source must remain alongside the compressed output.
 
 ## Rolling decompression and trainer handoff
 

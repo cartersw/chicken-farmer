@@ -76,6 +76,18 @@ def pack_segment(work, destination, segment_id, *, seen=None):
     manifests = list(render_dir.glob("*.render.json"))
     require(len(manifests) == 1, "Expected one renderer result")
     render = read_json(manifests[0])
+    shared_session = None
+    shared_frames = {}
+    if (work/"shared-session.json").exists():
+        from .session_processing import verify_archive
+        shared_session = read_json(work/"shared-session.json")
+        require(sha256_file(Path(shared_session["receipt"])) == shared_session["receipt_sha256"], "Shared session receipt changed")
+        session_receipt = verify_archive(read_json(Path(shared_session["receipt"])))
+        with zipfile.ZipFile(session_receipt["archive"]["path"]) as archive:
+            session_members = json.loads(archive.read("archive_index.json"))["members"]
+        shared_frames = shared_session["frames"]
+        for reference in shared_frames.values():
+            require(session_members[reference["member"]]["sha256"] == reference["sha256"], "Shared native frame archive disagrees")
     require((render["width"], render["height"], render["fps"]) == (640, 360, 32),
             "Renderer output differs from the decided trainer format")
     inventory = read_json(render_dir/"capture_frame_files.json")
@@ -140,6 +152,9 @@ def pack_segment(work, destination, segment_id, *, seen=None):
             before = path.stat()
             original_bytes += before.st_size
             digest = hashlib.sha256()
+            if name in shared_frames:
+                require(sha256_file(path) == shared_frames[name]["sha256"] == expected[str(path)], "Shared archived frame changed")
+                continue
             if path.name == "input.dem":
                 actual = sha256_file(path)
                 require(actual == source["demo_id"], "Staged demo differs before shared-source archival")
@@ -155,7 +170,8 @@ def pack_segment(work, destination, segment_id, *, seen=None):
             require(str(path) not in expected or expected[str(path)] == actual,
                     "Verified evidence changed before archival: "+name)
             members[name] = {"sha256": actual, "bytes": before.st_size}
-        archive.writestr("archive_index.json", encoded({"original_root": str(work), "members": members, "shared_sources": shared}))
+        archive.writestr("archive_index.json", encoded({"original_root": str(work), "members": members, "shared_sources": shared,
+            **({"shared_session": shared_session} if shared_session else {})}))
     with zipfile.ZipFile(evidence_path) as archive:
         require(archive.testzip() is None, "Evidence archive failed its compression round trip")
     receipt = {"schema_version": 1, "profile": PROFILE, "status": "complete", "format": FORMAT,
@@ -167,7 +183,8 @@ def pack_segment(work, destination, segment_id, *, seen=None):
                "evidence_archive": {"path": str(evidence_path), "sha256": sha256_file(evidence_path)},
                "uncompressed_work_bytes": original_bytes,
                "compressed_bytes": rgb_path.stat().st_size+evidence_path.stat().st_size,
-               "shared_sources": shared, "training_ready": bool(kept), "model_training_performed": False}
+               "shared_sources": shared, "training_ready": bool(kept), "model_training_performed": False,
+               **({"shared_session": {k: shared_session[k] for k in ("receipt", "receipt_sha256")}} if shared_session else {})}
     save_settings(destination/"receipt.json", receipt)
     seen.update(new_keys)
     return receipt
@@ -183,6 +200,11 @@ def release_work(work, receipt, owned_root):
         require(not path.is_relative_to(work) and sha256_file(path) == item["sha256"], "Archive changed before workspace release")
     for item in receipt.get("shared_sources", {}).values():
         require(sha256_file(Path(item["path"])) == item["sha256"], "Shared original demo changed")
+    if "shared_session" in receipt:
+        from .session_processing import verify_archive
+        shared = receipt["shared_session"]
+        require(sha256_file(Path(shared["receipt"])) == shared["receipt_sha256"], "Shared session receipt changed before cleanup")
+        verify_archive(read_json(Path(shared["receipt"])))
     paths = sorted(work.rglob("*"), key=lambda p: len(p.parts), reverse=True)
     require(all(not p.is_symlink() and p.resolve().is_relative_to(work) for p in paths), "Unsafe workspace release path")
     for path in paths:

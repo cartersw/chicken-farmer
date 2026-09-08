@@ -229,9 +229,9 @@ class DemoLauncher:
         workers = ttk.Combobox(parallel_bar, textvariable=self.validation_workers, values=(1, 2, 3, 4), state="readonly", width=4)
         workers.pack(side="left")
         self.controls.append(workers)
-        ttk.Label(parallel_bar, text="  2 recommended · one recorder · bounded backlog", style="Subtle.TLabel").pack(side="left")
-        ttk.Label(self.queue_tab, text="Recording overlaps validation and lossless compression. Internal segments last up to two minutes.\n"
-                  "Stop finishes the active capture and drains captured clips through validation, compression and cleanup.",
+        ttk.Label(parallel_bar, text="  2 recommended · run after all recording finishes", style="Subtle.TLabel").pack(side="left")
+        ttk.Label(self.queue_tab, text="One CS2 session records the whole demo for your player. Parallel validation and lossless compression follow.\n"
+                  "Training files split at two minutes. Stop finishes the current recording interval and saves progress for resume.",
                   style="Subtle.TLabel", wraplength=930).grid(row=5, column=0, sticky="w", pady=(8, 0))
 
         bar = ttk.Frame(self.capture_tab)
@@ -349,12 +349,17 @@ class DemoLauncher:
             self.queue_tree.selection_set([key for key in selected if self.queue_tree.exists(key)])
             self.queue_text.set(f"{len(doc['jobs'])} demos · 640×360 RGB8 · 32 FPS · lossless training shards and evidence archives. "
                                 "Completed segments resume without recapture.")
-            active = next((j for j in doc["jobs"] if j["status"] == "processing" and j.get("pipeline")), None)
+            active = next((j for j in doc["jobs"] if j["status"] in ("processing", "recording", "indexing_session", "archiving_session", "validating") and j.get("pipeline")), None)
             if active:
                 p = active["pipeline"]
-                self.queue_text.set(f"Recording {p.get('recording', 0)}/1 · Validating {p.get('validating', 0)}/{p['validation_workers']} · "
-                    f"Waiting {p.get('waiting', 0)} · Compressing {p.get('compressing', 0)}/1 · "
-                    f"In progress {p.get('in_flight', 0)}/{p['max_in_flight']}")
+                if p.get("phase") in ("recording", "indexing_session", "archiving_session"):
+                    self.queue_text.set(f"{p['phase'].replace('_', ' ').capitalize()} · "
+                        f"{p.get('recorded_segments', 0)}/{p.get('total_segments', 0)} segments captured · validation starts after recording")
+                else:
+                    recording = f"Recording {p['recording']}/1" if p.get("recording") else "Recording finished"
+                    self.queue_text.set(f"{recording} · Validating {p.get('validating', 0)}/{p.get('validation_workers', 2)} · "
+                        f"Waiting {p.get('waiting', 0)} · Compressing {p.get('compressing', 0)}/1 · "
+                        f"In progress {p.get('in_flight', 0)}/{p.get('max_in_flight', 3)}")
         except (OSError, ValueError, KeyError, TypeError) as error:
             self.queue_text.set("Queue needs attention: "+str(error))
 

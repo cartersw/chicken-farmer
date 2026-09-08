@@ -29,6 +29,7 @@ json lastMovie;
 bool movieWasRecording = false;
 uint64_t lastCounterAfter = 0;
 string lastMovieBasename;
+json lastEndpoint;
 void* currentMovieObject = nullptr;
 
 int64_t Qpc() { LARGE_INTEGER value{}; QueryPerformanceCounter(&value); return value.QuadPart; }
@@ -144,7 +145,7 @@ void NewMovieFrame(void* self, const void* event) {
     if (ledger && movieWasRecording && (state == 0 || state == 2)) {
         // A real subsequent render event supplies the final boundary; the
         // endmovie command itself can share the final captured frame's cursor.
-        Write({{"event", "movie_end"}, {"movie_name", lastMovieBasename},
+        lastEndpoint = {{"event", "movie_end"}, {"movie_name", lastMovieBasename},
                {"next_capture_index", lastCounterAfter}, {"replay_demo_tick", Tick()},
                {"demo_start_tick", DemoStartTick()},
                {"render_time_seconds", Read<float>(event, 0x28)},
@@ -152,7 +153,8 @@ void NewMovieFrame(void* self, const void* event) {
                {"native_observation", Observation::Snapshot("movie_endpoint")},
                {"native_clock", ClockTrace::Snapshot("movie_endpoint")},
                {"native_state_before", state},
-               {"clock_phase", "first_movie_callback_after_recording_stopped"}});
+               {"clock_phase", "first_movie_callback_after_recording_stopped"}};
+        Write(lastEndpoint);
         movieWasRecording = false;
     }
     if (ledger && state > 2 && (flags & 1)) {
@@ -186,6 +188,7 @@ void NewMovieFrame(void* self, const void* event) {
         lastCounterAfter = Read<uint64_t>(self, 0x138);
         row["replay_demo_tick_after"] = Tick();
         row["native_clock_after"] = ClockTrace::Snapshot("movie_submission_after");
+        ChickenSession::Frame(row);
         Write(std::move(row));
     }
 }
