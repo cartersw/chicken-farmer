@@ -269,7 +269,7 @@ json Initialize() {
     clientTable = reinterpret_cast<void**>(engineBase + 0x5335d8);
     auto serviceTable = Observation::Value<const BYTE*>(service, 0);
     if (serviceTable != engineBase + 0x573890 ||
-        Observation::Value<const BYTE*>(serviceTable, 23 * 8) != engineBase + 0x1d2bc0 ||
+        Observation::Value<const BYTE*>(serviceTable, 23 * 8) != engineBase + ProfileRva(0x1d2bc0, 0x1d2bb0) ||
         clientTable[88] != engineBase + 0x6a2d0 ||
         clientTable[111] != engineBase + 0x6afe0 ||
         clientTable[128] != engineBase + 0x89340 ||
@@ -280,7 +280,7 @@ json Initialize() {
     originalEntitiesApply = reinterpret_cast<MessageFn>(clientTable[129]);
     originalUserCommands = reinterpret_cast<MessageFn>(clientTable[128]);
     return {{"schema_version", 1}, {"status", "prepared"},
-        {"engine_sha256", EngineSha}, {"client_vtable_rva", "0x5335d8"},
+        {"engine_sha256", ExpectedEngineSha()}, {"client_vtable_rva", "0x5335d8"},
         {"net_tick_slot", 88}, {"packet_entities_dispatch_slot", 111},
         {"packet_entities_apply_slot", 129}, {"net_tick_field_offset", 80},
         {"user_commands_slot", 128},

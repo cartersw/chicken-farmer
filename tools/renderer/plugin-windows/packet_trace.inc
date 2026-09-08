@@ -142,7 +142,7 @@ json Initialize() {
         demoTable[3] != engineBase + 0x35a90)
         PluginError("Demo packet hook exact interface/vtable guard failed");
     originalReadPacket = reinterpret_cast<ReadPacketFn>(demoTable[22]);
-    return {{"schema_version", 1}, {"status", "prepared"}, {"engine_sha256", EngineSha},
+    return {{"schema_version", 1}, {"status", "prepared"}, {"engine_sha256", ExpectedEngineSha()},
         {"demo_player_vtable_rva", "0x52db68"}, {"read_packet_slot", 22},
         {"read_packet_function_rva", "0x2b820"}, {"packet_data_offset", 80},
         {"packet_byte_count_offset", 116}, {"selected_source_tick_offset", 556},

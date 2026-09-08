@@ -61,12 +61,14 @@ def adapt_source(source: str) -> str:
             'bool Connect(IAppSystem* appSystem, CreateInterfaceFn factoryFn)')
     replace('void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)',
             '#include "capture_trace.inc"\n'
-            '#include "settings_isolation.inc"\n\n'
+            '#include "settings_isolation.inc"\n'
+            '#include "calibration_trace.inc"\n\n'
             'void NewFrameStageNotify(void* thisptr, ClientFrameStage_t stage)')
     replace('    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).',
             '    ChickenSettings::BeforeCommands();\n'
             '    ChickenCapture::Initialize();\n\n'
             '    ChickenCapture::ClockTrace::BeforeCommands();\n\n'
+            '    ChickenCalibration::BeforeCommands();\n\n'
             '    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).')
     replace('                    engine->ExecuteClientCmd(0, action.cmd.c_str(), true);',
             '                    ChickenCapture::ObserveCommand(action.cmd, "before");\n'
@@ -254,6 +256,7 @@ def main() -> None:
     (args.output / "clock_trace.inc").write_bytes(Path(__file__).with_name("clock_trace.inc").read_bytes())
     (args.output / "packet_trace.inc").write_bytes(Path(__file__).with_name("packet_trace.inc").read_bytes())
     (args.output / "settings_isolation.inc").write_bytes(Path(__file__).with_name("settings_isolation.inc").read_bytes())
+    (args.output / "calibration_trace.inc").write_bytes(Path(__file__).with_name("calibration_trace.inc").read_bytes())
     (args.output / "icvar.h").write_text(icvar, encoding="utf-8", newline="\n")
     (args.output / "convar.cpp").write_bytes(convar_source)
 

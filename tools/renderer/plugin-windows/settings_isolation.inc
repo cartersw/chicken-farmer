@@ -110,10 +110,10 @@ void InstallEarly() {
         PluginError("Settings isolation requires matching child-process USRLOCALCSGO before startup");
 
     const auto engineModule = GetModuleHandleW(L"engine2.dll");
-    if (!engineModule || ModuleHash(engineModule) != ChickenCapture::EngineSha)
+    if (!engineModule || ModuleHash(engineModule) != ChickenCapture::ExpectedEngineSha())
         PluginError("Settings isolation: unsupported engine2.dll identity");
     guardedEngine = reinterpret_cast<BYTE*>(engineModule);
-    if (SafeRead<void*>(guardedEngine + StorageContextRva) != guardedEngine + 0x1f2430)
+    if (SafeRead<void*>(guardedEngine + StorageContextRva) != guardedEngine + ChickenCapture::ProfileRva(0x1f2430, 0x1f2420))
         PluginError("Settings isolation: unsupported engine RemoteStorage context initializer");
     const auto previousCounter = SafeRead<uint64_t>(guardedEngine + StorageContextRva + 8);
     const auto previousInterface = SafeRead<void*>(guardedEngine + StorageContextRva + 16);
@@ -145,7 +145,7 @@ void InstallEarly() {
     VerifyCloudGuard();
     isolationReport = {{"schema_version", 1}, {"policy", Policy}, {"status", "installed_pending_path_verification"},
         {"pid", GetCurrentProcessId()}, {"settings_root", settingsRoot.u8string()},
-        {"engine_sha256", ChickenCapture::EngineSha}, {"filesystem_sha256", FileSystemSha},
+        {"engine_sha256", ChickenCapture::ExpectedEngineSha()}, {"filesystem_sha256", FileSystemSha},
         {"cloud_hook_installed", true}, {"cloud_interface", StorageVersion},
         {"cloud_cache_uninitialized_at_install", true}, {"startup_guard_passed", true},
         {"local_path_verified", false}, {"scope", "engine2_user_config_remote_storage"},

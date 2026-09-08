@@ -2,6 +2,34 @@
 
 **Updated: 2026-09-07.** Evidence: [STATUS.md](STATUS.md).
 
+The user approved defining the controller format and building controlled Windows
+calibration before expanding training work. Work has resumed; see the
+[current calibration run evidence](CONTROL_CALIBRATION_RUNS.md). Remaining work
+includes resolving measured original/replay phase differences and button
+semantics before training labels can be promoted. Complete-command extraction
+and the first original/replay diagnostic comparison now pass.
+
+## Current controller/calibration work
+
+- [x] Define the 32 Hz angular/held-button/event representation and missing-data masks.
+- [x] Add CLI export and a candidate audit that revalidates source acceptance.
+- [x] Implement protected local Windows recording and a bounded native action plan.
+- [x] Inspect the installed 1.41.8.0 binaries under a separate calibration profile.
+- [x] Record original images and recover all commands (008: 321 images, 711 commands).
+- [x] Independently compare all original TGA pixels to native readbacks.
+- [x] Measure dispatch/command associations while preserving separate clock fields.
+- [x] Replay a state-derived window covering shot, crouch and turn (160 frames).
+- [x] Finish original/replay state and pixel diagnostics (160 native pixel matches; sampled shot/crouch state agrees).
+- [ ] Investigate the measured turn discrepancy (up to 9.375 degrees at equal numeric controller ticks) and distinguish input, state and render phases.
+- [ ] Repeat phase-varied press/release/tap trials before assigning general semantic button labels.
+- [ ] Add a separately measured mouse/angle actuator and weapon-selection representation.
+- [ ] Resolve the remaining replay observer HUD strip before full visual training acceptance.
+- [ ] Re-establish current-build competitive packet/command support, or recover the exact archived binaries needed to revalidate the historical pilot.
+
+These calibration probes are controlled local tests. Training/evaluation corpus
+work remains competitive round footage, with match/series separation. A single
+probe cannot certify general subtick timing or physical input latency.
+
 ## Completed foundation
 
 - [x] Extract/audit all three demos with preserved protobufs and immutable Parquet.

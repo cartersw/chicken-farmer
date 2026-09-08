@@ -19,6 +19,7 @@ from .viewer import viewer
 from .validation import validate_clip
 from .synchronization import audit_synchronization
 from .causal_acceptance import accept_causal_samples
+from .control_audit import audit_control_candidates, write_control_contract
 
 
 def parser() -> argparse.ArgumentParser:
@@ -89,6 +90,11 @@ def parser() -> argparse.ArgumentParser:
     causal.add_argument("--out", type=Path, required=True)
     causal.add_argument("--history-frames", type=int, default=8)
     causal.add_argument("--target-horizon-frames", type=int, default=2)
+    control = commands.add_parser("control-contract", help="Write the proposed 32 Hz action JSON Schema; calibration remains unmeasured")
+    control.add_argument("--out", type=Path, required=True)
+    control_audit = commands.add_parser("audit-control-candidates", help="Reverify accepted observations and audit diagnostic two-command control candidates")
+    control_audit.add_argument("--acceptance", type=Path, required=True)
+    control_audit.add_argument("--out", type=Path, required=True)
     acceptance = commands.add_parser("accept-samples", help="Write accepted/rejected temporal sample manifests with explicit reasons")
     acceptance.add_argument("--parsed", type=Path, required=True)
     acceptance.add_argument("--dataset", type=Path, required=True)
@@ -128,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
                   "validate-clip": validate_clip, "accept-samples": accept_samples,
                   "audit-synchronization": audit_synchronization,
                   "accept-causal-samples": accept_causal_samples,
+                  "control-contract": write_control_contract,
+                  "audit-control-candidates": audit_control_candidates,
                   "summarize-campaign": summarize_campaign,
                   "align": align, "viewer": viewer}[command](**args)
     except (ValueError, OSError, KeyError, TypeError) as error:

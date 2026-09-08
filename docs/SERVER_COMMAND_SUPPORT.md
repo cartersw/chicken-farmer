@@ -1,5 +1,11 @@
 # Server command support evidence
 
+The original `server-command-support-v1` below describes patch 14178 and its
+historical inspected binary. The installation has since changed to patch 14180.
+A separate [current static audit](#current-patch-14180-static-audit) is recorded
+at the end of this document. It does not restore historical acceptance or claim
+cross-build equivalence.
+
 Evidence profile: `server-command-support-v1`, inspected 2026-09-07. This is a
 source and installed-binary audit, not a new recording-server experiment. It
 supports a bounded **server command processing** target. It does not establish
@@ -217,3 +223,54 @@ profile's field requirements, and all existing per-window state/quality gates.
 The installed binary audit is explicitly version-scoped; compatibility with the
 supplied recording's producer must be supported by its retained envelopes and
 independent runtime/clock evidence, not assumed from the DLL name.
+
+## Current patch 14180 static audit
+
+Profile `server-command-support-cb593652-14180-v1` independently inspects the
+current Valve server binary, SHA256
+`cb5936528177b6da79be5dadcda0192be05feec687cb07dda0cd0e618a8f4d7c`.
+The full 33,002,648-byte binary and adjacent `steam.inf` are archived under
+`data/native-profiles/server-cb593652-14180-v1/`. The installation metadata says
+`PatchVersion=1.41.8.0`, `ServerVersion=2000905`, and
+`SourceRevision=10973549`. These installation fields are not evidence of the
+producer identity of an earlier demo.
+
+`src/cs2_data/server_command_support.py` records the exact complete binary hash,
+13 inspected code/data ranges (with bytes and hashes), and three vtable slots.
+Its archive loader rechecks the archived binary independently of the current
+installation, so a subsequent game update does not erase this static evidence.
+It does not load or execute the DLL.
+
+Fresh read-only VS `dumpbin /disasm /range` inspection of this binary established:
+
+| Inspected path | Current observation |
+| --- | --- |
+| `CSource2Server` vtable `0x18077B8`, slot 12 | `0xD3D250` installs the globals pointer at `0x1C9F350`. |
+| Live exporter, full `0xDE9D11` and delta `0xDE9EA5` paths | Load globals `+0x44` and write server tick to the outgoing envelope `+0x2C`; client tick remains separate at `+0x30`. |
+| Processing caller `0xDE3524` through `0xDE3632` | Set controller tickbase to `E-1`, invoke movement service slot 25, then call exporter `0xDE99E0`. |
+| Movement vtable `0x17A16C0`, slot 25 | `0xAA4350` gates command processing and calls base `0xC24760`. |
+| Base movement `0xC24760` | Advance ordinary tickbase, install temporary simulation tick, process the command, and restore the caller's global tick before export. |
+| Interval constructor `0xC07D40`, call at `0xC22EC4` | Ordinary start/end ticks remain `[Q-1,Q]`; the special path can have equal start/end ticks. Fractions initialize to zero and one. |
+| Subtick clock code `0xC170C6` through `0xC17190` | Reads interval endpoints and still normalizes out-of-range fractions across tick boundaries. Those fractions remain excluded from the narrow profile. |
+| Checkpoint exporter, slot 83 `0xD3F450` | Still stamps cached commands with the checkpoint's current tick; this does not establish the cached command's original execution time. |
+| Tickbase getter `0xB14B90` / setter `0xB35850` | Access controller field `+0x4B8`. |
+| Tick-duration constant `0x160CCBC` | Exactly `0.015625` seconds. |
+
+These observations support the same enclosing `[E-1,E]` interpretation for the
+inspected current processing path. The matching RVAs and inspected behavior do
+not establish full binary equivalence with the unavailable original server DLL.
+The current static profile is scoped to patch **14180**, while the original
+Dust2 demo records patch **14178**. Historical acceptance remains unchanged and
+currently cannot be reproduced through its original installed-binary dependency.
+
+The archive status is `static_binary_audited`. It explicitly leaves recording
+server identity, runtime command-clock evidence, observation timing, semantic
+button mapping and training readiness false. A new locally recorded calibration
+demo can be associated with this exact binary using the recording-session
+manifest and measured runtime traces. An arbitrary matching patch number or
+edited status flag cannot supply that association.
+
+Verification: 17 focused tests cover exact binary identity, code/vtable changes,
+malformed PE metadata, immutable publication, edited proof flags and the ability
+to recheck the archive after the installation changes. The real current binary
+and archived report were also independently rechecked successfully.

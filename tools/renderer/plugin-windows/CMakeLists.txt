@@ -32,6 +32,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_LIST_DIR}/clock_trace.inc"
     "${CMAKE_CURRENT_LIST_DIR}/packet_trace.inc"
     "${CMAKE_CURRENT_LIST_DIR}/settings_isolation.inc"
+    "${CMAKE_CURRENT_LIST_DIR}/calibration_trace.inc"
     "${CHICKEN_RENDERER_UPSTREAM}/cs2-server-plugin/main.cpp"
     "${CHICKEN_RENDERER_UPSTREAM}/cs2-server-plugin/cdll_interfaces.h"
     "${hl2sdk_SOURCE_DIR}/public/icvar.h"

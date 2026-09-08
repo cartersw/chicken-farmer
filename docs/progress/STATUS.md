@@ -1,5 +1,21 @@
 # Current implementation status
 
+**Latest work: controller CLI and controlled Windows calibration implemented.**
+The successful local probe has 321 verified images, 14 control events and all
+711 full commands reconstructed without parser warnings. Its protected replay
+produced 160 images over five seconds. Both processes exited cleanly, preserved
+all 39 selected personal settings files and removed their staged plugins.
+All 160 replay images match native readbacks, with stable in-eye identity.
+Paired shot/crouch state agrees; turn eye angles differ by up to 9.375 degrees
+at equal numeric controller ticks, so phase calibration remains incomplete.
+See the [current run evidence](CONTROL_CALIBRATION_RUNS.md). The historical pilot
+below remains intact, but revalidating it is blocked by the missing original
+Valve server binary after a game update. New calibration data is diagnostic;
+exact input-consumption timing and semantic button labels remain unverified.
+Final verification: **895 Python tests passed**, native Release build succeeded,
+and both successful 008 sessions exited cleanly. Steam Cloud testing remains
+deferred; the user-reported Steam mode was not changed.
+
 **Checkpoint: 2026-09-07 — packet clock bounds verified; first 129 training samples accepted.**
 
 The new `recorded_future_server_command_v1` profile accepts **129 samples** from

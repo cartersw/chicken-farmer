@@ -2,7 +2,18 @@
 
 This folder tracks completed work, verification, blockers, and the remaining CS2 vision imitation-learning milestones.
 
-**Last updated: 2026-09-07. Current milestone: first 129 future-command training samples accepted.**
+**Current work:** the controller CLI and native Windows calibration are
+implemented; a protected probe has 321 verified images, 14 actions and 711 fully
+reconstructed commands. Its protected five-second replay produced 160 images.
+See [current calibration run evidence](CONTROL_CALIBRATION_RUNS.md) for measured
+results and remaining checks. The earlier
+[pause checkpoint](CONTROL_CALIBRATION_CHECKPOINT.md) is historical.
+
+**Last updated: 2026-09-07. Current milestone: controlled recording and replay.**
+
+The historical 129-sample partition remains intact. Revalidating its original
+binary proof is currently blocked by a game update; new calibration diagnostics
+do not add accepted training samples.
 
 Trial 016 verifies complete packet information bounds, exact pixel matching and
 first-person identity. Its accepted samples contain eight images and one future
@@ -28,6 +39,9 @@ re-extracted without altering raw commands. No model has been trained.
 | [Current status](STATUS.md) | Everything built, what works, what is only partly verified, and where the artifacts live |
 | [Next steps](NEXT_STEPS.md) | Ordered work items with dependencies and completion criteria |
 | [Completion history](CHANGELOG.md) | Dated record of delivered work, checks, and decisions |
+| [Controller contract](../CONTROL_CONTRACT.md) | 32 Hz action format, masks, diagnostic candidate CLI and timing bounds |
+| [Controlled calibration](../CALIBRATION.md) | Protected Windows recording, demo extraction and replay comparison commands |
+| [Calibration run evidence](CONTROL_CALIBRATION_RUNS.md) | Successful recording/replay, measured differences, failures and final verification |
 | [Validation guide](../VALIDATION.md) | Native POV/action checks and the remaining clock evidence |
 | [Acceptance guide](../ACCEPTANCE.md) | Temporal sample rules, manifests and campaign summaries |
 | [Synchronization guide](../SYNCHRONIZATION.md) | Packet proof, future-command support and the first accepted profile |

@@ -3,6 +3,9 @@
 // All entity/schema reads use bounded ReadProcessMemory and fail to null.
 namespace Observation {
 constexpr const char* ClientSha = "b8e2c009763e8cefb88d89a2bdcf452db17501553d473db6da060df8e6769eb4";
+const char* ExpectedClientSha() {
+    return CalibrationProfile() ? "809b62b2397e7849995ea427ed99fe2270d2f8ceae731e5ffa43c271e132f3ae" : ClientSha;
+}
 constexpr const char* SchemaSha = "e3cff9d0dd23639da5a4e4b0267c6cd64f44598d8a2fb087b02f14a5af028512";
 BYTE* clientBase = nullptr;
 BYTE* schemaBase = nullptr;
@@ -172,6 +175,58 @@ json PawnState(const BYTE* pawn) {
         {"ammo_clip", Scalar<int32_t>(weapon, "C_BasePlayerWeapon.m_iClip1")},
         {"last_shot_time", Scalar<float>(weapon, "C_CSWeaponBase.m_fLastShotTime")}};
 }
+// Own-player path for controlled local recordings. Keep the spectator POV
+// resolver separate: a live pawn is not an observed spectator target.
+json LocalPlayer() {
+    json result = {{"status", "unavailable"}};
+    if (!schemaReady) { result["reason"] = "schema_unavailable"; return result; }
+    auto controller = Value<const BYTE*>(clientBase, 0x23a0f30);
+    if (EntityClass(controller) != ".?AVCCSPlayerController@@") {
+        result["reason"] = "local_controller_unavailable"; return result;
+    }
+    const auto pawnHandle = FieldValue<uint32_t>(controller, "CBasePlayerController.m_hPawn", UINT32_MAX);
+    auto pawn = Entity(pawnHandle);
+    if (!pawn || EntityClass(pawn).find("PlayerPawn") == string::npos) {
+        result["reason"] = "local_player_pawn_unavailable"; return result;
+    }
+    const auto controllerHandle = Handle(controller);
+    if (FieldValue<uint32_t>(pawn, "C_BasePlayerPawn.m_hController", UINT32_MAX) != controllerHandle) {
+        result["reason"] = "local_identity_not_reciprocal"; return result;
+    }
+    const BYTE* observer = nullptr;
+    const bool observerPointerKnown = Field(pawn, "C_BasePlayerPawn.m_pObserverServices", observer);
+    result["observer_services_pointer_observed"] = observerPointerKnown;
+    result["observer_services_present"] = observerPointerKnown ? json(observer != nullptr) : json(nullptr);
+    result["status"] = "observed";
+    result["steam_id"] = std::to_string(FieldValue<uint64_t>(controller, "CBasePlayerController.m_steamID"));
+    result["controller_handle"] = controllerHandle;
+    result["pawn_handle"] = pawnHandle;
+    result["controller_tick_base"] = Scalar<int32_t>(controller, "CBasePlayerController.m_nTickBase");
+    result["observer_mode"] = Scalar<uint8_t>(observer, "CPlayer_ObserverServices.m_iObserverMode");
+    result["life_state"] = Scalar<uint8_t>(pawn, "C_BaseEntity.m_lifeState");
+    result["team"] = Scalar<uint8_t>(pawn, "C_BaseEntity.m_iTeamNum");
+    result["pawn_state"] = PawnState(pawn);
+    auto camera = FieldValue<const BYTE*>(pawn, "C_BasePlayerPawn.m_pCameraServices");
+    result["camera_view_entity_handle"] = Scalar<uint32_t>(camera, "CPlayer_CameraServices.m_hViewEntity");
+    auto view = clientBase + 0x23d9c90;
+    const bool cameraKnown = Value<const BYTE*>(view, 0) == clientBase + 0x1b331c0;
+    result["camera_origin"] = cameraKnown ? Vector(view, 0x4b0) : json(nullptr);
+    const auto& origin = result["pawn_state"]["origin"];
+    const auto& eye = result["camera_origin"];
+    const auto& overrideHandle = result["camera_view_entity_handle"];
+    bool firstPerson = false;
+    if (origin.is_array() && eye.is_array() && origin.size() == 3 && eye.size() == 3 &&
+        overrideHandle == UINT32_MAX) {
+        const double dx = eye[0].get<double>() - origin[0].get<double>();
+        const double dy = eye[1].get<double>() - origin[1].get<double>();
+        const double dz = eye[2].get<double>() - origin[2].get<double>();
+        firstPerson = std::isfinite(dx) && std::isfinite(dy) && std::isfinite(dz) &&
+            dx * dx + dy * dy <= 4.0 && dz >= 24 && dz <= 76;
+    }
+    result["first_person_camera_verified"] = firstPerson;
+    result["first_person_camera_check"] = "stationary_local_eye_origin_no_view_override";
+    return result;
+}
 json Pov() {
     json result = {{"status", "unavailable"}};
     if (!schemaReady) { result["reason"] = "schema_unavailable"; return result; }
@@ -255,6 +310,7 @@ json Snapshot(const char* phase) {
         if (schemaReady) Write({{"event", "native_schema"}, {"fields", fields}});
     }
     result["observed_pov"] = Pov();
+    if (HasArgument("-chicken-calibration-plan")) result["local_player"] = LocalPlayer();
     result["rendered_camera"] = Camera();
     auto demo = engineToClient ? engineToClient->GetDemoPlayer() : nullptr;
     if (demo) {
@@ -267,12 +323,12 @@ json Snapshot(const char* phase) {
 json Initialize() {
     clientBase = reinterpret_cast<BYTE*>(GetModuleHandleA("client.dll"));
     schemaBase = reinterpret_cast<BYTE*>(GetModuleHandleA("schemasystem.dll"));
-    if (ModuleSha(reinterpret_cast<HMODULE>(clientBase)) != ClientSha ||
+    if (ModuleSha(reinterpret_cast<HMODULE>(clientBase)) != ExpectedClientSha() ||
         ModuleSha(reinterpret_cast<HMODULE>(schemaBase)) != SchemaSha)
         PluginError("Native observation client/schema DLL SHA256 mismatch; refusing version-specific reads");
     schemaReady = LoadSchema();
     Trace("Native observation initialized: schema_ready=%d fields=%zu", schemaReady, fields.size());
-    return {{"schema_version", 1}, {"client_sha256", ClientSha}, {"schemasystem_sha256", SchemaSha},
+    return {{"schema_version", 1}, {"client_sha256", ExpectedClientSha()}, {"schemasystem_sha256", SchemaSha},
         {"source_commit", "03f972b4710ab9a8b1601fc0c34ce33c9c0268cc"},
         {"schema_ready", schemaReady}, {"schema_fields", fields},
         {"entity_reads", "bounded_and_complete_handle_checked"},

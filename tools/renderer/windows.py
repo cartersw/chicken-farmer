@@ -376,6 +376,10 @@ def launch_arguments(game: Path, job: dict[str, Any], demo: Path, log: Path,
                  "-chicken-render-isolation", str(log.parent / "settings-isolation.json")]
     if allow_version_mismatch:
         arguments += ["+demo_allow_game_mismatch", "1"]
+    if "calibration_replay_profile" in job:
+        if job["calibration_replay_profile"] != "cs2-controlled-calibration-replay-v1":
+            raise ValueError("Unsupported controlled calibration replay profile")
+        arguments.append("-chicken-calibration-replay")
     return arguments + ["+playdemo", str(demo)]
 
 

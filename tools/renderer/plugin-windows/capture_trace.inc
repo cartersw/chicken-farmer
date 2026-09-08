@@ -31,6 +31,24 @@ uint64_t lastCounterAfter = 0;
 string lastMovieBasename;
 void* currentMovieObject = nullptr;
 
+int64_t Qpc() { LARGE_INTEGER value{}; QueryPerformanceCounter(&value); return value.QuadPart; }
+bool HasArgument(const char* name) {
+    for (int i = 0; i < CommandLine()->ParmCount(); ++i)
+        if (!strcmp(CommandLine()->GetParm(i), name)) return true;
+    return false;
+}
+// Current-build offsets are reviewed separately in NATIVE_COMPATIBILITY_14180.md.
+// Ordinary replay keeps the historical profile; the newer one is explicitly
+// scoped to controlled calibration and its diagnostic replay.
+bool CalibrationProfile() {
+    return HasArgument("-chicken-calibration-plan") || HasArgument("-chicken-calibration-replay");
+}
+const char* ExpectedEngineSha() {
+    return CalibrationProfile() ? "1fcf2920de28f625ee1ac5d6436c582ed381a4a913cfe2c9701b5551cc912d07" : EngineSha;
+}
+size_t ProfileRva(size_t legacy, size_t calibration) { return CalibrationProfile() ? calibration : legacy; }
+const char* ProfileName() { return CalibrationProfile() ? "cs2-14180-calibration-v1" : "cs2-14178-replay-v1"; }
+
 template<class T> T Read(const void* base, size_t offset) {
     T value{};
     memcpy(&value, static_cast<const BYTE*>(base) + offset, sizeof(value));
@@ -107,10 +125,11 @@ void TraceCvars() {
 }
 
 void NewMovieFrame(void* self, const void* event) {
+    const auto qpcBefore = Qpc();
     // CRenderService::OnClientOutput passes its EventClientOutput_t argument
     // unchanged to this call. The exact return RVA is independently verified.
     const auto callerRva = reinterpret_cast<BYTE*>(_ReturnAddress()) - engineBase;
-    if (ledger && callerRva != 0x1e5b58)
+    if (ledger && callerRva != ProfileRva(0x1e5b58, 0x1e5b48))
         PluginError("Unexpected native movie-frame caller; capture clock cannot be trusted");
     currentMovieObject = self;
     const auto before = Read<uint64_t>(self, 0x138);
@@ -137,6 +156,7 @@ void NewMovieFrame(void* self, const void* event) {
         const auto name = std::filesystem::path(nativeName).filename().string();
         snprintf(filename, sizeof(filename), "%s%08llu.tga", name.c_str(), before);
         row = {{"event", "movie_frame"}, {"movie_name", name}, {"capture_index", before},
+               {"qpc_before", qpcBefore},
                {"native_movie_name", nativeName},
                {"tga_filename", filename}, {"replay_demo_tick", Tick()},
                {"demo_start_tick", DemoStartTick()},
@@ -156,6 +176,7 @@ void NewMovieFrame(void* self, const void* event) {
     }
     originalMovieFrame(self, event);
     if (!row.is_null()) {
+        row["qpc_after"] = Qpc();
         row["counter_after"] = Read<uint64_t>(self, 0x138);
         lastCounterAfter = Read<uint64_t>(self, 0x138);
         row["replay_demo_tick_after"] = Tick();
@@ -184,19 +205,20 @@ void ObserveCommand(const string& command, const char* phase) {
 bool NewReadPixels(void* self, void* texture, const int* sourceRect, int unknown3,
                    int unknown4, const int* destRect, void* pixels, int format, int unknown8) {
     const auto returnRva = reinterpret_cast<BYTE*>(_ReturnAddress()) - engineBase;
-    const bool nativeScreenshot = returnRva == 0x1e88c6;
+    const bool nativeScreenshot = returnRva == ProfileRva(0x1e88c6, 0x1e88b6);
     int width = 0, height = 0;
     json row;
     if (ledger && nativeScreenshot) {
         {
             std::lock_guard<std::mutex> lock(ledgerMutex);
             row = {{"event", "pixel_readback"}, {"readback_index", readbackCounter++},
+                   {"qpc_before", Qpc()},
                    {"submission_candidate", lastMovie}};
         }
         row["replay_demo_tick"] = Tick();
         row["image_format"] = format;
         row["native_argument9"] = unknown8;
-        row["native_caller_rva"] = "0x1e88c6";
+        row["native_caller_rva"] = CalibrationProfile() ? "0x1e88b6" : "0x1e88c6";
         row["clock_on_engine_thread"] = GetCurrentThreadId() == engineThread;
         row["native_observation"] = Observation::Snapshot("pixel_readback_before");
         row["native_clock"] = ClockTrace::Snapshot("pixel_readback_before");
@@ -204,6 +226,7 @@ bool NewReadPixels(void* self, void* texture, const int* sourceRect, int unknown
     const bool result = originalReadPixels(self, texture, sourceRect, unknown3, unknown4,
                                            destRect, pixels, format, unknown8);
     if (!row.is_null()) {
+        row["qpc_after"] = Qpc();
         row["success"] = result;
         row["replay_demo_tick_after"] = Tick();
         row["native_observation_after"] = Observation::Snapshot("pixel_readback_after");
@@ -270,31 +293,41 @@ void Initialize() {
         PluginError("Capture hook could not identify loaded engine2.dll");
     std::ifstream file(std::filesystem::path(modulePath), std::ios::binary);
     std::vector<BYTE> image((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    if (image.empty() || Sha256(image.data(), image.size()) != EngineSha)
+    if (image.empty() || Sha256(image.data(), image.size()) != ExpectedEngineSha())
         PluginError("Capture hook engine2.dll SHA256 mismatch; refusing version-specific hooks");
     movieVtable = reinterpret_cast<void**>(engineBase + 0x54c460);
     auto render = Read<void*>(engineBase, 0x688c68);
-    if (!render || movieVtable[9] != engineBase + 0x100af0 || movieVtable[2] != engineBase + 0x100280)
+    if (!render || movieVtable[9] != engineBase + ProfileRva(0x100af0, 0x100ae0) ||
+        movieVtable[2] != engineBase + ProfileRva(0x100280, 0x100270))
         PluginError("Capture hook layout verification failed");
     renderVtable = *reinterpret_cast<void***>(render);
     originalMovieFrame = reinterpret_cast<MovieFrameFn>(movieVtable[9]);
     originalMovieEnd = reinterpret_cast<MovieEndFn>(movieVtable[2]);
     originalReadPixels = reinterpret_cast<ReadPixelsFn>(renderVtable[74]);
     if (!originalReadPixels || !renderVtable[90]) PluginError("Capture hook render interface is incomplete");
+    if (CalibrationProfile()) {
+        auto renderModule = GetModuleHandleA("rendersystemdx11.dll");
+        auto renderBase = reinterpret_cast<BYTE*>(renderModule);
+        if (Observation::ModuleSha(renderModule) != "45b610ff89bb5adcb77a8d34b1f576b25e0ca389ffb3c4883f3243adfebf0500" ||
+            renderVtable[74] != renderBase + 0x3f190 || renderVtable[90] != renderBase + 0x30190)
+            PluginError("Calibration requires the inspected DX11 readback interface");
+    }
     ledger = fopen(path, "wx");
     if (!ledger) PluginError("Capture evidence path must be new and writable: %s", path);
     const auto observation = Observation::Initialize();
     const auto packetTrace = PacketTrace::Initialize();
     const auto networkClock = ClockTrace::Initialize();
+    LARGE_INTEGER qpcFrequency{}; QueryPerformanceFrequency(&qpcFrequency);
     Write({{"event", "header"}, {"schema_version", 1}, {"hook", "engine2.CMovieRecorder.movie_frame_submit+ReadTexturePixels"},
-           {"engine_sha256", EngineSha}, {"pixel_correspondence_validated", false},
+           {"qpc_frequency", qpcFrequency.QuadPart},
+           {"engine_sha256", ExpectedEngineSha()}, {"native_profile", ProfileName()}, {"pixel_correspondence_validated", false},
            {"native_observation", observation},
            {"native_clock", networkClock},
            {"packet_trace", packetTrace},
            {"clock", "IDemoFile.GetDemoTick"}, {"fraction_available", false},
            {"training_ready", false}, {"readback_hash", "SHA256_RGB_native_rows_and_flipped_rows"},
            {"render_clock", {{"field", "EventClientOutput_t.m_flRenderTime"}, {"units", "seconds"},
-                             {"event_caller_rva", "0x1e5b58"}, {"field_offset", 40},
+                             {"event_caller_rva", CalibrationProfile() ? "0x1e5b48" : "0x1e5b58"}, {"field_offset", 40},
                              {"execution_clock_calibrated", false},
                              {"sdk_commit", "bd17582be4bc18970e4fe4c518359872fda8276d"}}},
            {"native_epoch", {{"field", "IDemoFile.GetDemoStartTick"}, {"getter_rva", "0x35a80"},

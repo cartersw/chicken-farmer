@@ -2,6 +2,58 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-07 - Controller CLI and protected controlled recording/replay
+
+Resumed the two approved steps. Added the 32 Hz controller schema export and
+reverified two-command diagnostic candidate audit. Added a bounded native
+Windows control recorder, independent dispatch/command/pixel diagnostics,
+and a protected wrapper for replaying its recorded demo. All calibration and
+controller candidates retain training/live-control readiness as false.
+
+Inspected the installed 1.41.8.0 binaries under a separate calibration profile,
+including changed engine addresses, local loopback/server checks, the input
+registry and the existing full-command recording option. The first complete
+recording exposed a missing delta baseline; complete command serialization
+fixed subsequent recordings without inventing the old baseline.
+
+Run 008 produced 321 original images and 14 dispatched actions. Every image
+matches its native RGB readback, and all 711 full UserCmd payloads reconstruct
+without parser warnings or projected-field discrepancies. Its five-second
+replay produced 160 images covering the shot, crouch and turn. Original and
+replay sessions exited cleanly. Across eight local attempts and the replay,
+all 39 protected personal files remained unchanged, gameinfo was restored and
+the run-owned plugin was archived out of CS2. Steam mode/Cloud preferences
+were not changed.
+
+Original/replay diagnostics independently match all 160 replay images to native
+readbacks and verify stable in-eye identity. Equal numeric controller-tick
+pairs agree on ammo, crouch/ground state and last-shot time. Position differences
+reach 0.874 game units and eye-angle differences reach 9.375 degrees during the
+turn; exact render/input phase equivalence remains unverified.
+
+Measured raw button evidence shows plane 2 on both press and release; plane 3
+is unobserved. Command-number associations and state changes remain diagnostic,
+with no claim of exact input-consumption timing or physical-device latency.
+The original 129 accepted samples remain intact, but their current revalidation
+is blocked by the missing original Valve server binary after the game update.
+See [run evidence](CONTROL_CALIBRATION_RUNS.md), [controller](../CONTROL_CONTRACT.md)
+and [calibration](../CALIBRATION.md) for reproduction and remaining work.
+
+Final verification: **895 Python tests passed in 41.06 seconds**; native Release
+build and protected live recording/replay passed; `git diff --check` passed.
+The eight pinned game modules are retained with checked hashes under
+`data/native-profiles/calibration-14180-v1/` to preserve this inspection evidence.
+
+## 2026-09-07 - Controller and calibration implementation paused
+
+Saved a proposed 32 Hz controller format, diagnostic two-command candidate
+builder, protected Windows calibration worker and component guides. All 94
+focused tests pass. Native calibration support, CLI integration, real-data
+candidate auditing and original/replay calibration measurements remain
+unfinished. No game was launched, no settings were changed and no new training
+samples were accepted. Work stopped at the user's request; see the
+[resume checkpoint](CONTROL_CALIBRATION_CHECKPOINT.md).
+
 ## 2026-09-07 - Packet synchronization and first accepted training subset
 
 Completed the approved clock-proof and first-subset work, with Steam Cloud
