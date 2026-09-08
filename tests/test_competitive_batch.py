@@ -130,6 +130,8 @@ def runner(sources, monkeypatch):
         if not value["valid"] or value["source"] != source["source_id"]:
             raise ValueError("independent semantic verification failed")
         if stage == "hud_review":
+            if control.get("trusted_setup"):
+                return {"status": "hud_setup_trusted", "visual_review_performed": False, "training_ready": False}
             return {"status": "visual_review_verified" if control["approved"] else "pending_visual_review", "training_ready": False}
         if stage == "acceptance":
             if value["proof_generation"] != control["proof_generation"]:
@@ -273,3 +275,66 @@ def test_long_clip_plan_retains_source_window_and_never_crosses_its_boundary(sou
 def test_long_clip_plan_remains_bounded(sources, ticks):
     with pytest.raises(ValueError, match="even 32..1280"):
         plan(sources, clip_ticks=ticks)
+
+
+def test_trusted_setup_continues_to_acceptance_without_manual_approval(runner):
+    runner["control"]["trusted_setup"] = True
+    assert runner["control"]["approved"] is False
+    report = batch.run_batch(runner["out"], execute=True)
+    assert report["job_status_counts"] == {"accepted_partition_verified": 2}
+    assert report["accepted_sample_count"] == 306
+    assert sum(stage == "acceptance" for _, stage, _ in runner["calls"]) == 2
+
+
+@pytest.fixture
+def policy_stage(tmp_path, monkeypatch):
+    from cs2_data import hud_policy, hud_review
+    render_dir = tmp_path/"render"
+    render = {"clip_id": "capture", "capture_ledger_sha256": "a"*64,
+              "capture_frame_files_sha256": "b"*64}
+    write(render_dir/"capture.render.json", render)
+    # Policy compatibility has its own tests. This fixture checks batch
+    # orchestration never calls the old expensive visual-review producers.
+    policy = {"status": "trusted_capture_setup", "visual_review_performed": False}
+    monkeypatch.setattr(hud_policy, "trusted_hud_policy", lambda _: dict(policy))
+    monkeypatch.setattr(hud_policy, "policy_allows_capture", lambda value: value == policy)
+    monkeypatch.setattr(hud_review, "prepare_hud_review", lambda *a, **k: pytest.fail("No automatic contact sheets"))
+    monkeypatch.setattr(hud_review, "validate_hud_review_bundle", lambda *a, **k: pytest.fail("No recurring visual review"))
+    return tmp_path/"hud", {"render": render_dir}, render
+
+
+def test_routine_hud_stage_only_writes_small_policy_receipt(policy_stage):
+    out, parents, _ = policy_stage
+    batch._perform_stage("hud_review", out, {}, {}, parents, {})
+    assert [path.name for path in out.iterdir()] == ["hud_policy.json"]
+    assert (out/"hud_policy.json").stat().st_size < 5000
+    result = batch._verify_stage("hud_review", out, {}, {}, parents)
+    assert result["status"] == "hud_setup_trusted"
+    assert result["visual_review_performed"] is False
+    assert result["training_ready"] is False
+
+
+def test_historical_bundle_does_not_require_another_visual_review(policy_stage):
+    out, parents, render = policy_stage
+    write(out/"hud_review_bundle.json", {**render, "render_dir": str(parents["render"]),
+                                       "all_frames_reviewed": False})
+    result = batch._verify_stage("hud_review", out, {}, {}, parents)
+    assert result["status"] == "hud_setup_trusted"
+    assert result["bundle"].endswith("hud_review_bundle.json")
+    assert not (out/"hud_policy.json").exists()
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_hud_stage_still_binds_metadata_to_the_correct_capture(policy_stage, historical):
+    out, parents, render = policy_stage
+    if historical:
+        path = out/"hud_review_bundle.json"
+        write(path, {**render, "render_dir": str(parents["render"]), "clip_id": "another"})
+    else:
+        batch._perform_stage("hud_review", out, {}, {}, parents, {})
+        path = out/"hud_policy.json"
+        receipt = batch.read_json(path)
+        receipt["capture_ledger_sha256"] = "c"*64
+        write(path, receipt)
+    with pytest.raises(ValueError, match="another capture"):
+        batch._verify_stage("hud_review", out, {}, {}, parents)

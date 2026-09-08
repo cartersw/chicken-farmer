@@ -6,6 +6,14 @@ Track completed work, current blockers, and the next milestones in [docs/progres
 to browse demo folders, prepare source data, choose a player POV, plan sample captures and run/resume
 one protected clip at a time. It uses the existing local Python environment.
 See the [desktop app guide](docs/DESKTOP_APP.md) for the workflow and limits.
+For ordinary round progression, the [consecutive-round collector](docs/ROUND_COLLECTION.md)
+plans chronological player footage with explicit tails, budgets and resumable capture.
+
+The [decided trainer baseline](docs/TRAINER_DESIGN.md) is **640x360, full-color
+RGB, 8 bits per channel, with eight consecutive frames at 32 FPS**. Loading uses
+planned rolling decompression, bounded frame reuse and background prefetching.
+Train this baseline first; revisit the format only if learning is not progressing
+and the evidence warrants an adjustment. The cache and trainer remain to be implemented.
 
 The [32 Hz executor and scoped label builder](docs/CONTROL_EXECUTION.md)
 connect angular actions to protected Windows keyboard/mouse input. A real
@@ -21,8 +29,10 @@ commands, image bounds and competitive context before the
 with masked 32 Hz targets. The first capture, HUD, acceptance and tensor
 results are tracked in [the competitive pilot milestone](docs/progress/COMPETITIVE_TRAINING_PILOT.md).
 The completed [action-coverage collection](docs/progress/ACTION_COVERAGE_AND_THROUGHPUT.md)
-has **1,692 accepted samples across seven clips**, including positive reload,
-attack, movement and crouch fields. The four-sample CPU tensor batch saves and
+last published **1,692 accepted samples across seven clips**, including positive
+reload, attack, movement and crouch fields. Current source-proof v3 requires fresh
+numerical acceptance publications; the HUD policy change has not reverified
+those older partitions. The recorded four-sample CPU tensor batch saves and
 reloads exactly. [Collection preparation](docs/COMPETITIVE_COLLECTION.md)
 balances ordinary play and action examples; longer protected clips, bounded
 source caches and faster HUD sheets reduce processing overhead. The final
@@ -121,7 +131,9 @@ Use the complete job `data/jobs/dust2-competitive-current-001.json`. Its explici
 jobs without that field retain the historical route. The worker stages HUD
 override assets inside its private mod and archives that mod back into the run
 after cleanup. It does not overwrite installed CS2 resources or personal HUD
-preferences. Visual HUD verification is a separate required check.
+preferences. Routine captures trust the user-approved current HUD setup;
+they do not require repeated visual review or overlay detection. Automatic
+source, timing, POV and original-pixel integrity checks remain required.
 
 ```powershell
 .venv/Scripts/python.exe tools/renderer/windows.py --spec data/jobs/dust2-competitive-current-001.json --output data/rendered/competitive-NEW --allow-version-mismatch

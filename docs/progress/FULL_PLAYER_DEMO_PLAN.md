@@ -7,8 +7,15 @@ Steam ID `76561198323592528`, source demo SHA-256
 A complete player POV is a useful next engineering milestone. The current
 worker can render and resume bounded clips, but needs an exhaustive queue and
 boundary handling before it can claim complete coverage of one player's match.
-This document is a feasibility estimate and proposed implementation/run plan.
-No full-demo capture or model training was started for this investigation.
+This document preserves the full-player feasibility estimate and proposed
+implementation/run plan. The later [bounded two-round trial](ROUND_PROGRESSION_TRIAL.md)
+implements selected-round interval accounting, shorter tails, session budgets
+and protected sequential resume. The user stopped that trial after nine captures:
+166.75 seconds, 5,336 original images and approximately 28.09 GB retained in
+34 minutes 41.8 seconds of active processing, with final cleanup verified. The
+remaining 22 planned seconds are intentionally unrecorded; two complete rounds
+are not claimed. Sample acceptance, exhaustive full-demo capture and model
+training remain unstarted.
 
 ## Actual source coverage and raw frame cost
 
@@ -32,7 +39,9 @@ GB denotes decimal billions of bytes; GiB denotes powers of 1024. The estimate
 is for competitive alive play. Setup/freeze time, pauses, dead-player spectating
 and post-round footage are excluded by the existing eligibility rules.
 Additional context frames, native capture traces, synchronization evidence,
-acceptance manifests, previews and review sheets require additional space.
+acceptance manifests and previews require additional space. Routine captures
+no longer generate HUD review sheets; the historical estimates below retain
+the measured cost of the earlier review workflow.
 Frames and eligible source time are not counts of accepted training samples.
 
 ## Total retained storage and working budget
@@ -108,7 +117,7 @@ checks provide useful components, but do not constitute that coordinator.
 ## Proposed implementation and first run
 
 1. Add a persistent plan for this exact demo and Steam ID, enumerating every
-   eligible alive interval. Record pending, captured, awaiting review, accepted,
+   eligible alive interval. Record pending, captured, ready for acceptance, accepted,
    rejected and deliberately excluded coverage with reasons. Resume verified
    completed stages and distinguish retries from additional coverage.
 2. Define variable tail lengths, history overlap and target ownership across
@@ -121,24 +130,25 @@ checks provide useful components, but do not constitute that coordinator.
    bounded clock evidence and reports per group.
 4. Run the first two competitive rounds through the complete pipeline. They
    contain 188.78125 eligible seconds, about 22.27 GB of raw originals before
-   overlap. Measure actual disk growth, startup/seeking, verification and review
+   overlap. Measure actual disk growth, startup/seeking, verification and acceptance
    cost. Check round endings and interruption/resume behavior.
 5. Continue the same coverage queue through the remaining rounds once that
    group validates the estimates and boundaries. Report all accepted/rejected
    intervals and verify a real tensor batch from the resulting corpus.
 
-Ten-second clips have real capture evidence. Twenty-second clips are supported
-and covered by automated tests, but need a live trial before using them as the
-default. Fewer launches could improve throughput; the full-pipeline benefit
-still needs measurement.
+Ten-second clips have real capture evidence. The later two-round trial also
+verified its first twenty-second capture with 640 original images, matched
+message clocks and direct settings/binary/HUD cleanup checks. The bounded trial
+uses twenty-second full clips; final sustained throughput and complete-pipeline
+acceptance costs still need measurement. The desktop default remains ten seconds.
 
-The current acceptance profile requires visual review of every original image.
-Captures can remain pending review, but cannot be called training-ready without
-it. For unattended publication, implement and validate automatic visual checks
-with review of flagged cases and representative spot checks first; account for
-legitimate flashes, smoke and scoped views. This replacement is proposed, not
-implemented. Automatic clock, packet, pixel, POV and control checks remain
-required, including rejection of the unresolved checkpoint ambiguity.
+The user approved trusting the current renderer/plugin/resource setup without
+recurring manual HUD reviews, automated overlay detectors or spot checks.
+Routine processing records `user_approved_capture_setup` after the fixed setup
+metadata matches, without generating contact sheets or claiming human image
+inspection. Automatic clock, packet, original-pixel integrity, POV and control
+checks remain required, including rejection of the unresolved checkpoint
+ambiguity. Sample acceptance still evaluates those independent requirements.
 
 ## Storage optimization and training scope
 

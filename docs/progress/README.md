@@ -4,21 +4,46 @@ This folder tracks completed work, verification, blockers, and the remaining CS2
 
 **New desktop interface:** [Demo Processor](../DESKTOP_APP.md) provides folder
 selection, source preparation, named player POV selection, bounded capture planning, live logs and one-clip
-run/resume controls. It reuses the existing pipeline and keeps visual review and
-game-restoration requirements. The full-player scheduler remains proposed.
+run/resume controls. It reuses the existing pipeline and game-restoration
+requirements. Sample durations are 5, 10 or 20 seconds, with
+10 seconds the default. The full-player scheduler remains proposed.
 
-**Current work:** [action coverage and throughput](ACTION_COVERAGE_AND_THROUGHPUT.md)
+**Current policy:** the user approved the current capture HUD setup after
+viewing the nine clips. Routine processing uses that fixed setup without
+recurring manual review, automated overlay detectors or spot checks. It records
+the setup assumption without claiming complete-image inspection, and retains
+automatic timing, source, POV and original-pixel integrity checks. See
+[competitive acceptance](../COMPETITIVE_ACCEPTANCE.md).
+The [policy verification](../../data/validation/trusted-hud-001/nine-capture-policy.json)
+passes for all nine captures without image reads or sheet generation;
+[243 core tests pass](../../data/validation/trusted-hud-001/core-tests.xml).
+
+**Current recording result:** the [round progression trial](ROUND_PROGRESSION_TRIAL.md)
+recorded ordinary Ckanic/Dust2 progression in order with a twenty-second maximum,
+explicit interval exclusions, resource budgets, sequential protected resume and
+an ordered video/report page. The user stopped after **nine captures: 166.75
+seconds and 5,336 images**, approximately 28.09 GB retained and 34 minutes 41.8
+seconds of active processing. Cleanup passes for all nine captures. The final
+22 planned seconds are intentionally unrecorded, so two complete rounds are
+not claimed. Their acceptance evaluation remains pending; one source-clock exception
+affects eight prospective histories. **123 focused tests pass.** See the
+[round collection workflow](../ROUND_COLLECTION.md).
+
+**Previous milestone:** [action coverage and throughput](ACTION_COVERAGE_AND_THROUGHPUT.md)
 adds four ten-second protected captures, balanced action/ordinary selection,
-faster source scanning and HUD review. There are **1,692 accepted samples**
-across seven refreshed clips, including positive reload/control fields. A real
+faster source scanning and HUD review. Its last publication had **1,692 accepted samples**
+across seven refreshed clips, including positive reload/control fields. Those
+partitions need fresh numerical publications under source-proof v3 before
+current loader use; the HUD policy change has not reverified them. A real
 four-sample tensor batch reloads exactly; **2,030 tests pass**. Settings and
 installed game/HUD bytes are unchanged. All footage belongs to one BO3;
 validation/test remain empty and no model was trained.
 
-**Next collection under consideration:** [Ckanic's full Dust2 POV](FULL_PLAYER_DEMO_PLAN.md).
+**Larger collection under consideration:** [Ckanic's full Dust2 POV](FULL_PLAYER_DEMO_PLAN.md).
 The source contains about 31.5 minutes of eligible alive play. The feasibility
-plan records measured storage costs and the remaining queue, boundary and budget
-work; it does not mark a full-demo run as implemented or captured.
+plan records measured storage costs and the remaining complete-match queue and
+history work. The first bounded trial stopped at the user's requested nine
+clips; a full-demo run has not been implemented or captured.
 
 **Previous milestone:** [competitive buttons and batch processing](COMPETITIVE_EXPANSION.md)
 established the original-source button proof, full reconstruction and first
@@ -50,7 +75,7 @@ keyboard/button response phases pass. See [synthetic input results](SYNTHETIC_IN
 The earlier
 [pause checkpoint](CONTROL_CALIBRATION_CHECKPOINT.md) is historical.
 
-**Last updated: 2026-09-08. Current milestone: action coverage and collection throughput.**
+**Last updated: 2026-09-08. Current policy: trust the user-approved capture HUD setup.**
 
 The earlier execution/label milestone passed **1,455 Python tests**. Its combined run has 385 verified
 images, 840 complete commands and 82 Windows input events. Its two preflight
@@ -90,9 +115,11 @@ re-extracted without altering raw commands. No model has been trained.
 | [Current status](STATUS.md) | Everything built, what works, what is only partly verified, and where the artifacts live |
 | [Next steps](NEXT_STEPS.md) | Ordered work items with dependencies and completion criteria |
 | [Desktop app](../DESKTOP_APP.md) | Double-click launcher, demo folder selection, preparation and protected capture controls |
+| [Round progression trial](ROUND_PROGRESSION_TRIAL.md) | Action-blind nine-clip recording, measured costs, cleanup and retained timing/review limits |
+| [Round collection workflow](../ROUND_COLLECTION.md) | Bounded chronological planning, sequential recording/resume, budgets and ordered report |
 | [Full player POV plan](FULL_PLAYER_DEMO_PLAN.md) | Ckanic/Dust2 eligible duration, storage estimates and proposed resumable full-match collection |
 | [Completion history](CHANGELOG.md) | Dated record of delivered work, checks, and decisions |
-| [Action coverage and throughput](ACTION_COVERAGE_AND_THROUGHPUT.md) | Current 1,692-sample corpus, real controls, capture/cache/review benchmarks and retained rejections |
+| [Action coverage and throughput](ACTION_COVERAGE_AND_THROUGHPUT.md) | Last published 1,692-sample corpus, real controls, capture/cache/review benchmarks and retained rejections |
 | [Collection preparation](../COMPETITIVE_COLLECTION.md) | Balanced selection, clock extraction and protected batch commands |
 | [Competitive expansion](COMPETITIVE_EXPANSION.md) | Earlier button proof, two-map batch and 456-sample milestone |
 | [Batch processing](../COMPETITIVE_BATCH.md) | Bounded plans, protected execution, resume, visual review and retained attempts |

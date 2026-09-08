@@ -172,7 +172,7 @@ class DemoLauncher:
         series = ttk.Entry(options, textvariable=self.series, width=28)
         series.pack(side="left", padx=(8, 18))
         self.controls.append(series)
-        for label, variable, values in (("Clips", self.clips, (1, 2, 4, 8)), ("Seconds / clip", self.seconds, (5, 10))):
+        for label, variable, values in (("Clips", self.clips, (1, 2, 4, 8)), ("Seconds / clip", self.seconds, (5, 10, 20))):
             ttk.Label(options, text=label).pack(side="left", padx=(0, 6))
             combo = ttk.Combobox(options, textvariable=variable, values=values, state="readonly", width=4)
             combo.pack(side="left", padx=(0, 14))
@@ -210,10 +210,10 @@ class DemoLauncher:
         bar.grid(row=3, column=0, sticky="ew")
         self._button(bar, "Run / resume next clip", self.capture, side="left")
         self._button(bar, "Refresh status", self.refresh_batch, side="left", padx=8)
-        self._button(bar, "Open review sheets", self.open_review, side="right")
+        self._button(bar, "Optional frames / setup", self.open_review, side="right")
         self._button(bar, "Open batch folder", lambda: self.open_path(self.batch.parent if self.batch else None), side="right", padx=8)
         ttk.Label(self.capture_tab, text="Run launches CS2. Close your normal game first. Each task advances at most one clip.\n"
-                  "Timing and settings guards remain active. Visual review is still required before training acceptance.",
+                  "Timing and settings guards remain active. The approved HUD setup needs no routine visual review.",
                   style="Subtle.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
 
         bar = ttk.Frame(main)
@@ -414,8 +414,12 @@ class DemoLauncher:
         for item in plan["jobs"]:
             job = item["job"]
             seconds = (job["end_demo_tick"] - job["start_demo_tick"]) / 64
+            recorded = statuses.get(item["job_id"], {})
+            status = recorded.get("display_status", recorded.get("status", "planned"))
+            label = {"pending_visual_review": "historical visual review pending",
+                     "hud_setup_trusted": "HUD setup trusted"}.get(status, status.replace("_", " "))
             rows.append((item["job_id"], (job.get("map", item["source_id"]), job["round_id"],
-                str(job["steam_id"]), f"{seconds:g}", statuses.get(item["job_id"], {}).get("status", "planned").replace("_", " "))))
+                str(job["steam_id"]), f"{seconds:g}", label)))
         selected = self.batch_tree.selection() if self.batch == path else ()
         self.batch_tree.delete(*self.batch_tree.get_children())
         for key, values in rows:
@@ -424,7 +428,7 @@ class DemoLauncher:
         self.plan_path.set(str(path))
         self.batch_tree.selection_set([key for key in selected if self.batch_tree.exists(key)])
         self.batch_text.set(f"{len(rows)} clips  |  Last reported accepted samples: {summary.get('accepted_sample_count', 0):,}. "
-                            "Running rechecks the underlying evidence.")
+                            "Running checks timing and sample eligibility; the approved HUD setup is trusted.")
 
     def refresh_batch(self):
         try:
@@ -453,7 +457,7 @@ class DemoLauncher:
             return
         selected = self.batch_tree.selection()
         if len(selected) != 1:
-            self.error("Select one clip to open its review sheets.")
+            self.error("Select one clip to open its optional frames or setup details.")
             return
         try:
             path, plan, _ = backend.read_batch_display(self.batch)
@@ -465,7 +469,7 @@ class DemoLauncher:
                 raise ValueError("The capture journal does not match this batch. Refresh or resume the batch first.")
             attempts = state["jobs"][selected[0]]["stages"]["hud_review"]
             if not isinstance(attempts, list) or not attempts:
-                raise ValueError("This clip has no review sheets yet. Run it through capture and processing first.")
+                raise ValueError("This clip has no optional frames or setup details yet. Capture and process it first.")
             latest = attempts[-1]
             if not isinstance(latest, dict) or latest.get("status") != "completed":
                 raise ValueError("The latest review step is incomplete. Resume the batch or inspect its activity log first.")
@@ -477,8 +481,14 @@ class DemoLauncher:
             if (latest.get("attempt") != len(attempts) or directory != expected
                     or not directory.is_relative_to(path.parent)):
                 raise ValueError("Invalid review directory in the capture journal.")
+            receipt = directory / "hud_policy.json"
             index = directory / "index.html"
-            if index.is_file():
+            if receipt.is_file() and latest.get("result", {}).get("status") == "hud_setup_trusted":
+                recorded = latest.get("files", {})
+                if not isinstance(recorded, dict) or recorded.get(str(receipt)) != backend.hash_file(receipt):
+                    raise ValueError("The setup record changed since the capture journal was saved.")
+                self.open_path(receipt)
+            elif index.is_file():
                 recorded = latest.get("files", {})
                 if not isinstance(recorded, dict) or recorded.get(str(index)) != backend.hash_file(index):
                     raise ValueError("The review page changed since the capture journal was saved. Resume the batch to check its evidence.")
@@ -584,8 +594,9 @@ class DemoLauncher:
                 self._log(str(error))
                 return
         if value["kind"] == "capture":
-            counts = result.get("summary", {}).get("job_status_counts", {})
-            self.status.set("Capture task finished - visual review pending" if counts.get("pending_visual_review") else "Capture task finished - see recorded batch status")
+            rows = result.get("summary", {}).get("jobs", [])
+            ready = any(row.get("display_status", row.get("status")) == "ready_for_acceptance" for row in rows)
+            self.status.set("Capture recorded - ready for acceptance" if ready else "Capture task finished - see recorded batch status")
         elif value["kind"] == "scan":
             self.status.set(f"Found {result['demo_count']} demos")
         elif value["kind"] == "plan":

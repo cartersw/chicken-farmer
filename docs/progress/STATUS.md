@@ -1,6 +1,60 @@
 # Current implementation status
 
-**Latest work (2026-09-08): desktop player selection and batch/review recovery.**
+**Latest work (2026-09-08): trust the approved capture HUD setup.**
+The user viewed the nine round-progression clips, said they look fine, and
+explicitly chose to trust the current setup without recurring manual review,
+overlay detectors or spot checks. Routine batches now use a small policy receipt
+bound to the approved renderer/plugin/resource metadata and do not generate HUD
+contact sheets. The HUD basis is `user_approved_capture_setup`, with
+`visual_review_performed: false`; this does not claim every frame was inspected.
+Timing, source reconstruction, exact first-person identity, original-pixel
+integrity and restoration checks remain automatic. Unsupported metadata fails
+normal compatibility checks. The manual HUD tool remains optional diagnostics.
+Existing captures and historical reviews are preserved. No new sample acceptance
+or model training has run as part of this policy change.
+
+The source-proof profile is now `cs2-competitive-replay-source-proof-v3`; the
+outer acceptance schema remains v2. Existing accepted publications bind older
+proof/code hashes and need fresh numerical publications for the current loader.
+The last published **1,692 accepted samples** were verified under the earlier
+proof. This HUD policy change does not reverify or upgrade those partitions,
+and their retained reports are unchanged.
+
+**Verified:** [357 distinct regression tests pass](../../data/validation/trusted-hud-001/verification.json),
+covering the core policy, numerical acceptance, dataset loading and UI/report
+backends. The desktop GUI suite was not rerun. The refreshed round report shows
+all nine captures ready for acceptance, with the two unused jobs still unrecorded.
+The [nine-capture policy check](../../data/validation/trusted-hud-001/nine-capture-policy.json)
+generated and validated all nine trusted-setup receipts in 0.137 seconds,
+retaining 31,212 bytes. It read no original images, generated no contact sheets
+and launched no game. This verifies the setup policy, not sample acceptance.
+
+**Previous work: nine-clip round progression recording.**
+The [round progression trial](ROUND_PROGRESSION_TRIAL.md) adds action-blind,
+chronological collection for one player's selected competitive alive rounds,
+using the existing protected renderer and standard batch journals. Ckanic's
+first two Dust2 competitive rounds have eleven planned clips covering 188.75
+seconds. Two excluded final demo ticks and the independent clips' initial
+history losses are explicit. A sequential coordinator supplies bounded storage,
+time and free-space checks, stop/resume, and a local video/status report.
+
+The user stopped collection after **nine captures: 166.75 seconds and 5,336
+original images**, retaining approximately 28.09 GB in 34 minutes 41.8 seconds
+of active processing. The last twenty-second and two-second planned clips are
+intentionally unrecorded; this does not cover two complete rounds. Final direct
+checks verify all nine captures' settings restoration, eight installed binary
+hashes and HUD cleanup, with CS2 closed and no held locks or staging remaining.
+
+The nine retained journals record the earlier pending-review state; the approved
+HUD setup now removes that manual gate. One source-clock ambiguity in round
+3's third clip affects eight prospective histories, which remain unavailable
+under the current acceptance rules; no new accepted/rejected counts are claimed.
+The desktop sample planner now offers 5, 10 or 20 seconds, retaining the
+10-second default; live GUI capture remains untested. **123 focused tests pass.**
+No model training has run. See the [trial evidence](ROUND_PROGRESSION_TRIAL.md)
+and [workflow](../ROUND_COLLECTION.md).
+
+**Previous work: desktop player selection and batch/review recovery.**
 The [desktop app](../DESKTOP_APP.md) now loads recorded player names and Steam
 IDs from the selected demos and plans sample captures for that exact player.
 The scope resets when demos/output change; late roster results cannot apply to

@@ -128,8 +128,8 @@ def test_capture_pending_review_is_displayed_without_claiming_acceptance(ui, mon
     monkeypatch.setattr(backend, "run_next_capture", capture)
     ui.capture()
     pump(ui.root, lambda: not ui.busy)
-    assert "visual review pending" in ui.status.get()
-    assert ui.batch_tree.item("job", "values")[-1] == "pending visual review"
+    assert "see recorded batch status" in ui.status.get()
+    assert ui.batch_tree.item("job", "values")[-1] == "historical visual review pending"
     assert "accepted samples: 0" in ui.batch_text.get()
 
 
@@ -262,3 +262,28 @@ def test_open_review_supports_historical_bundle_without_html(ui, monkeypatch):
     ui.open_review()
     assert opened == [directory]
     assert not ui.test_errors
+
+
+def test_open_review_supports_setup_receipt_without_generating_frame_sheets(ui, monkeypatch):
+    path, directory, state = review_attempt(ui)
+    (directory / "index.html").unlink()
+    receipt = directory / "hud_policy.json"
+    write(receipt, {"profile": "cs2-batch-hud-setup-policy-v1"})
+    latest = state["jobs"]["job"]["stages"]["hud_review"][-1]
+    latest.update(result={"status": "hud_setup_trusted"}, files={str(receipt): backend.hash_file(receipt)})
+    write(path.parent / "batch_state.json", state)
+    opened = []
+    monkeypatch.setattr(ui, "open_path", opened.append)
+    ui.open_review()
+    assert opened == [receipt] and not ui.test_errors
+
+
+def test_trusted_display_status_does_not_claim_sample_acceptance(ui, monkeypatch):
+    path = make_plan(ui)
+    plan = backend.read_object(path)
+    summary = {"jobs": [{"job_id": "job", "status": "pending_visual_review", "display_status": "ready_for_acceptance"}],
+               "accepted_sample_count": 0}
+    monkeypatch.setattr(backend, "read_batch_display", lambda _: (path, plan, summary))
+    ui.load_batch(path)
+    assert ui.batch_tree.item("job", "values")[-1] == "ready for acceptance"
+    assert "accepted samples: 0" in ui.batch_text.get()

@@ -1,4 +1,18 @@
-# Reviewing competitive HUD captures
+# Optional HUD capture diagnostics
+
+Routine captures trust the current renderer/plugin/resource setup that the user
+approved after viewing the nine-clip round trial. They do not generate contact
+sheets, require recurring manual review, or run overlay detectors or spot checks.
+The `cs2-trusted-hud-capture-setup-v1` acceptance basis is
+`user_approved_capture_setup`; it records that assumption
+without claiming every image was visually reviewed. Fixed setup metadata still
+has to match the supported capture profile. An incompatible setup reports a
+compatibility failure rather than launching a visual-review workflow.
+
+Automatic source, native timing, first-person identity, original-pixel integrity
+and settings/restoration checks remain separate. The tool below is available
+when someone wants to investigate a specific visual problem. Historical
+capture-bound manual review records remain intact.
 
 The review generator now creates every contact sheet in one FFmpeg pass and publishes a local `index.html`. The page links to every sheet, lists its frame range, and provides an original full-resolution TGA link for every frame. It never marks a frame reviewed or approves a capture.
 
@@ -9,11 +23,17 @@ python -m cs2_data.hud_review `
   --ffmpeg .tools/ffmpeg/ffmpeg-9.0.1-essentials_build/bin/ffmpeg.exe
 ```
 
-Open the new directory's `index.html` locally. Follow the sheet navigation and inspect **every tile**, reading left to right and then top to bottom. Each sheet contains up to eight original-derived 640×360 images in a two-column, four-row grid. A partial final sheet has black padding; the page explicitly identifies how many slots are padding.
+Open the new directory's `index.html` locally and inspect the frames relevant to
+the investigation. Each sheet contains up to eight original-derived 640×360
+images in a two-column, four-row grid. A partial final sheet has black padding;
+the page explicitly identifies how many slots are padding. If recording a
+complete-image manual review, inspect every tile and record its exact scope.
 
 Confirm that the spectator name/avatar/weapon strip is absent, the player's ordinary HUD remains visible, and no console, menu or obvious capture corruption obstructs the scene. Record uncertain frames and failures rather than treating them as reviewed. The original links point to untouched TGA files; a browser without TGA support may download them for a local image viewer.
 
-Actual approval still requires the separate source-bound review and registration described in [COMPETITIVE_ACCEPTANCE.md](COMPETITIVE_ACCEPTANCE.md). A complete index is a coverage checklist, not proof that someone inspected its images.
+The [acceptance workflow](COMPETITIVE_ACCEPTANCE.md) now uses the approved setup
+for supported routine captures. A generated index is diagnostic material, not
+proof that someone inspected its images or that training samples were accepted.
 
 ## Evidence and compatibility
 
@@ -23,9 +43,10 @@ Preparation checks every original image hash and the capture ledger, inventory a
 
 New-bundle validation checks the FFmpeg executable hash, exact sheet grouping and dimensions, full once-only frame coverage, and every sheet/index hash. It also reconstructs the expected escaped HTML and compares its bytes, so editing the page and updating its ordinary hash cannot substitute a different index. Sheet paths stay inside the review directory; original links stay inside the capture's verified frame archive. The page contains no scripts or approval controls. Original TGA links require the capture archive to remain at its recorded location.
 
-These checks preserve review material and its provenance. They do not establish visual correctness or replace the independently registered manual review.
+These checks preserve optional review material and its provenance. They do not
+establish visual correctness or claim human inspection.
 
-## Measured improvement
+## Historical generation benchmark
 
 The retained benchmark used the same 160-frame Dust2 capture for both implementations:
 

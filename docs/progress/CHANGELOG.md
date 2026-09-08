@@ -2,6 +2,99 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-08 - Decide the RGB trainer baseline
+
+The user confirmed **640x360, full-color RGB, 8 bits per channel, eight consecutive
+frames at 32 FPS, with rolling decompression, frame reuse and background
+prefetching** as the decided trainer baseline. Removed grayscale and alternative
+resolution comparisons from the active design and task list. The priority is to
+train this baseline; revisit the format only if learning is not progressing and
+observed failures justify an adjustment. This supersedes the comparison plan in
+the earlier design entry below.
+
+Updated the trainer design, tensor documentation, README, handoff and next steps.
+Historical compression measurements remain available as measurements rather than
+an active experiment plan. This update changes documentation only.
+
+## 2026-09-08 - Rolling preparation and trainer visual profile design
+
+Added [TRAINER_DESIGN.md](../TRAINER_DESIGN.md) following the user's selection of
+a rolling window for imitation-learning data preparation. The design keeps a
+compressed archive, prepares shuffled chunks in the background, reuses decoded
+uint8 frames across overlapping histories and bounds caches and batch queues.
+It preserves the accepted eight-frame/32 Hz image-only contract and masks.
+Evicted decoded frames are released; originals do not need recompression.
+
+Selected 640x360 full-color RGB as the starting design profile. One-channel
+grayscale and 320x180 are controlled comparisons, with no unmeasured accuracy
+or training-speed claims. Documented transform versioning, training/inference
+agreement, resource controls, recurrent reset rules, validation criteria and
+the existing storage/loading benchmark limits. Linked the design from the
+handoff, main README, tensor documentation and remaining-work list. Clarified
+that the old 1,692-sample batch predates source-proof v3.
+
+This is a documentation change. No trainer/cache implementation, capture,
+dataset conversion, acceptance publication or model training was performed.
+
+## 2026-09-08 - Trust the user-approved capture HUD setup
+
+The user reviewed the nine round-progression videos and chose to trust the
+current capture setup without recurring manual reviews, automatic overlay
+detectors or spot checks. Added the fixed
+`cs2-trusted-hud-capture-setup-v1` policy with
+`basis: user_approved_capture_setup` and `visual_review_performed: false`.
+Routine batch processing records a lightweight `hud_policy.json` receipt in
+the existing journal stage instead of generating contact sheets or pausing
+for manual review. The decision uses the recorded approved setup metadata;
+unsupported setup metadata reports a compatibility failure.
+
+Automatic timing, source reconstruction, POV, original-pixel integrity and
+restoration checks remain. The manual HUD tool stays available for optional
+diagnosis, and historical review evidence is preserved. The nine capture
+journals have not been rewritten or advanced, and no new accepted samples or
+training are claimed. Updated current workflow and priority documentation to
+reflect the user's preference; historical review milestones remain history.
+
+The source-proof profile changes to `cs2-competitive-replay-source-proof-v3`;
+the outer acceptance schema remains v2. Existing accepted publications retain
+their older proof/code hashes and require fresh numerical publication for the
+current loader. The previously verified 1,692 count is not a new result, and
+setup approval does not upgrade those historical partitions.
+
+Verification: [243 core tests pass](../../data/validation/trusted-hud-001/core-tests.xml).
+All nine real captures passed [policy receipt generation and validation](../../data/validation/trusted-hud-001/nine-capture-policy.json)
+in 0.137 seconds total, with 31,212 receipt bytes, zero original-image reads,
+zero contact sheets and no game launches. Numerical sample acceptance and
+training were not run.
+
+## 2026-09-08 - Consecutive-round planning and nine protected captures
+
+Added action-blind chronological round collection with explicit tail/grid
+exclusions, fixed-length protected sub-batches, source-bound plans and total
+resource estimates. A sequential coordinator checks budgets before each clip,
+retains resumable journals and honors stop requests after current cleanup. A
+local report provides ordered videos, intervals, gaps and current review links.
+The desktop sample planner adds twenty seconds to its five/ten-second choices,
+keeping the ten-second default and exact player dispatch.
+
+The first real twenty-second Ckanic/Dust2 trial passed with 640 original images
+and matched message clocks before the session continued. The user then limited
+the run to **nine captures: 166.75 seconds and 5,336 images**, with approximately
+28.09 GB retained and 34 minutes 41.8 seconds of active processing. Stop was
+honored after the ninth clip finished cleanup; the remaining planned twenty-
+and two-second clips are intentionally unrecorded. Two complete rounds are not
+claimed. Final checks pass for all nine captures, including 351 saved-backup
+comparisons across 39 settings files, eight installed binary hashes, unchanged
+HUD resources and no remaining CS2 process, staging or held session locks.
+
+One source-clock ambiguity at frame 107 of the round-3 `[7466, 8746)` clip would
+reject eight affected histories under future acceptance. The report flags it;
+recapturing would not resolve duplicate records in the original demo. All nine
+clips remain pending complete visual review and no training acceptance or model
+training is claimed. The focused suites pass **123 tests**. Live capture
+initiation through the GUI remains untested. See
+[the trial and retained evidence](ROUND_PROGRESSION_TRIAL.md).
+
 ## 2026-09-08 - Named player selection and resilient batch display
 
 Continued the desktop launcher's recorded stopping point with **Load players**

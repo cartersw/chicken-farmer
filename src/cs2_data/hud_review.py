@@ -1,7 +1,7 @@
-"""Prepare source-bound contact sheets for manual competitive HUD review.
+"""Prepare optional source-bound contact sheets for competitive HUD diagnosis.
 
-This creates review material, never an approval. Acceptance separately requires
-an explicitly registered review of every original image in the capture.
+This creates review material, never an approval. Routine acceptance trusts the
+user-approved capture setup and does not require this tool or per-image review.
 """
 from __future__ import annotations
 

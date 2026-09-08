@@ -31,7 +31,8 @@ is not required for the double-click launcher.
    choose across players. The list is a recorded roster, not a promise of eligible
    competitive footage; coaches or other recorded participants may have none.
 5. Use **Plan sample captures** to prepare any missing source data and create
-   a bounded capture batch. Choose 1-8 clips of 5 or 10 seconds. The existing
+   a bounded capture batch. Choose 1-8 clips of 5, 10 or 20 seconds; the default
+   remains 10 seconds. The existing
    planner selects ordinary/action examples from the chosen player's eligible
    competitive play, or across players in automatic mode. A chosen player with
    no eligible clips produces an error and retained diagnostics; it never falls
@@ -46,6 +47,10 @@ to automatic selection. Load players again to choose a POV for that selection.
 Player choices also start in automatic mode when reopening the app; saved batch
 plans retain their exact player IDs. This is bounded sample collection, not a
 complete player-match capture queue.
+For a larger action-blind recording of consecutive rounds, use the separate
+[round collection workflow](ROUND_COLLECTION.md). Its standard sub-batches can
+be opened in **Capture batches**; the session coordinator currently runs from
+the command line and owns the project lock while recording.
 
 The optional **Series ID** groups newly extracted maps from the same match/BO3.
 Leave it blank to preserve the identity of existing data. The app refuses to
@@ -70,16 +75,19 @@ are ignored for display, and refreshing keeps the selected clip.
 
 Close normal CS2, then click **Run / resume next clip**. This calls the existing
 protected competitive batch runner with a one-job execution budget. It may
-launch CS2, process the capture and advance it to review/acceptance. It retains
+launch CS2, process the capture and advance it to acceptance. It retains
 the worker's exact compatibility checks, settings backup/restoration, native
-clock and pixel checks, and required visual review. The app does not change
+clock and pixel checks. Routine captures trust the user-approved current HUD
+setup without generating review sheets or requiring human review. The app does not change
 Steam Offline Mode or Cloud preferences.
 
-Select a captured clip and click **Open review sheets** to open its generated
-local review page. The app does not approve images. A `pending visual review`
-status still requires the existing [review registration workflow](HUD_REVIEW.md)
-before acceptance can proceed. The next run can advance another planned clip
-while earlier captures await review. Completed stages are rechecked and reused.
+For older captures with retained sheets, **Open review sheets** opens the saved
+local diagnostic page. New routine captures do not generate these sheets.
+Historical `pending visual review` statuses describe the earlier workflow;
+supported captures can now advance using `user_approved_capture_setup` as their
+HUD acceptance basis. It records the setup assumption, not per-frame human
+inspection. The current **Ready for acceptance** display is separate from that
+historical recorded status. Completed stages are rechecked and reused.
 Review links come from the current completed step in the matching capture
 journal, with the saved page checksum checked. Unjournaled or incomplete attempt
 folders cannot silently replace that review. Older bundles without an HTML index
@@ -113,7 +121,7 @@ not bypassed. Use the [batch guide](COMPETITIVE_BATCH.md) and
   on the batch drive before capture; this is not a whole-demo budget or guarantee.
 
 This first version prepares sources and manages **bounded sample batches**.
-Multiple instances, automatic visual acceptance and the
+Multiple instances and the
 [complete-player demo queue](progress/FULL_PLAYER_DEMO_PLAN.md) remain future
 features. Source preparation can read arbitrary demos, but rendering and training
 acceptance remain limited to the project's supported source/game profiles.
@@ -133,6 +141,10 @@ A separate real-source smoke run reused Dust2's canonical tables and produced
 one ten-second competitive plan with the actual planner/clock tools, without
 capturing. A new live capture initiated through the GUI has not been tested;
 the callback delegates to the previously verified protected batch runner.
+Twenty-second capture has now passed a live trial through that protected runner,
+retaining 640 original frames with matched message clocks and verified settings,
+binary and HUD cleanup. The GUI now exposes the same 20-second option; initiating
+a 20-second capture through the GUI has not been separately tested.
 Evidence and app screenshots are under
 [`data/validation/desktop-app-001/`](../data/validation/desktop-app-001/).
 The player-selection follow-up has **136 backend/collection/batch checks and 20

@@ -1,8 +1,8 @@
 """Bounded competitive replay campaigns with protected, resumable stages.
 
 Planning writes only workspace files. Running is read-only unless execute=True.
-Rendering always enters the existing protected Windows worker; image review and
-competitive acceptance remain independent requirements.
+Rendering always enters the existing protected Windows worker. The approved
+HUD setup needs no recurring visual review; numerical acceptance stays separate.
 """
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from .native_replay_profile import CURRENT_PROFILE, header_matches_profile
 PROFILE = "cs2-bounded-competitive-batch-v1"
 SOURCE_PROFILE = "cs2-competitive-batch-sources-v1"
 STAGES = ("render", "process", "synchronization", "hud_review", "acceptance")
+HUD_POLICY_RECEIPT_PROFILE = "cs2-batch-hud-setup-policy-v1"
 PROJECT = Path(__file__).resolve().parents[2]
 MAX_JOBS = 24
 MAX_SOURCES = 8
@@ -209,7 +210,7 @@ def plan_batch(sources_manifest: Path, out: Path, *, clip_ticks=320, max_jobs=3)
             "stage_order": list(STAGES), "training_ready": False,
             "limits": ["Planning is not source/POV/HUD/label acceptance.",
                        "Only full bounded chunks are selected; tails are left for later planning.",
-                       "Every capture still requires independent complete-image HUD review."]}
+                       "The approved capture setup does not require recurring visual HUD review."]}
     write_json(out/"batch_plan.json", plan)
     return plan
 
@@ -327,6 +328,18 @@ def _verify_render(out, item):
             "frame_count": render["num_frames"], "training_ready": False}
 
 
+def _hud_policy_receipt(render_dir):
+    from .hud_policy import policy_allows_capture, trusted_hud_policy
+    path, render = _render_manifest(render_dir)
+    policy = trusted_hud_policy(render)
+    _require(policy_allows_capture(policy), "Capture setup is outside the approved HUD policy")
+    return {"schema_version": 1, "profile": HUD_POLICY_RECEIPT_PROFILE,
+            "render_manifest": str(path.resolve()), "render_manifest_sha256": sha256_file(path),
+            "capture_ledger_sha256": render["capture_ledger_sha256"],
+            "capture_frame_files_sha256": render["capture_frame_files_sha256"],
+            "clip_id": render["clip_id"], "policy": policy, "training_ready": False}
+
+
 def _verify_stage(stage, out, source, item, parents):
     if stage == "render":
         return _verify_render(out, item)
@@ -354,16 +367,24 @@ def _verify_stage(stage, out, source, item, parents):
         return {"status": "verified_synchronization_artifacts", "frame_count": report["num_frames"],
                 "native_clock_status": report["native_message_clock_audit"]["status"], "training_ready": False}
     if stage == "hud_review":
-        from .hud_review import validate_hud_review_bundle
-        bundle = validate_hud_review_bundle(out)
-        _require(Path(bundle["render_dir"]).resolve() == parents["render"].resolve(), "HUD bundle belongs to another capture")
-        from .competitive_replay_proof import _hud_review
-        _, render = _render_manifest(parents["render"])
-        watched = {}; review = _hud_review(render, bundle["frames"], lambda p, expected=None: _watch(watched, p, expected))
-        if watched:
-            _verify_hashes(watched)
-        return {"status": "visual_review_verified" if review.get("status") == "verified" else "pending_visual_review",
-                "bundle": str(out/"hud_review_bundle.json"), "review_evidence": review, "training_ready": False}
+        receipt = _hud_policy_receipt(parents["render"])
+        policy_path = out/"hud_policy.json"
+        result = {"status": "hud_setup_trusted", "hud_policy": receipt["policy"],
+                  "visual_review_performed": False, "training_ready": False}
+        if policy_path.is_file():
+            _require(read_json(policy_path) == receipt, "HUD policy receipt belongs to another capture or policy")
+            result["hud_policy_receipt"] = str(policy_path)
+        else:
+            # Old batches already have optional review material. Check its
+            # capture binding only; it no longer supplies the HUD decision.
+            bundle_path = out/"hud_review_bundle.json"
+            bundle = read_json(bundle_path)
+            _require(Path(bundle["render_dir"]).resolve() == parents["render"].resolve() and
+                     all(bundle.get(key) == receipt[key] for key in
+                         ("clip_id", "capture_ledger_sha256", "capture_frame_files_sha256")),
+                     "Historical HUD bundle belongs to another capture")
+            result["bundle"] = str(bundle_path)
+        return result
     from .competitive_control import load_competitive_acceptance
     report = load_competitive_acceptance(out)
     _require(report["demo_id"] == source["demo_id"] and Path(report["inputs"]["dataset"]).resolve() == dataset.resolve(),
@@ -400,9 +421,11 @@ def _perform_stage(stage, out, source, item, parents, options):
         audit_synchronization(Path(source["parsed"]), parents["process"], Path(source["network_clock"]), out,
                               native_profile=CURRENT_PROFILE)
     elif stage == "hud_review":
-        from .hud_review import prepare_hud_review
-        ffmpeg = Path(options["ffmpeg"]) if options.get("ffmpeg") else None
-        prepare_hud_review(parents["render"], out, ffmpeg=ffmpeg)
+        receipt = _hud_policy_receipt(parents["render"])
+        out.mkdir(parents=True, exist_ok=False)
+        with (out/"hud_policy.json").open("x", encoding="utf-8") as handle:
+            json.dump(receipt, handle, indent=2, allow_nan=False)
+            handle.write("\n")
     else:
         from .competitive_control import accept_competitive_controls
         accept_competitive_controls(Path(source["parsed"]), parents["process"], Path(source["network_clock"]),

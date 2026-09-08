@@ -4,6 +4,8 @@
 discover competitive alive windows, select ordinary and action examples,
 extract clock evidence for their exact intervals, and write protected batch
 jobs. Preparation launches no game and grants no sample acceptance.
+To collect consecutive ordinary round progression instead of a selected mixture,
+use the [round collection workflow](ROUND_COLLECTION.md).
 
 The [action-coverage milestone](progress/ACTION_COVERAGE_AND_THROUGHPUT.md)
 records the first real ten-second collection, measured throughput, retained

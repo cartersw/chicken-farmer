@@ -309,3 +309,41 @@ def test_display_opens_valid_plan_when_summary_json_is_incomplete(project, tmp_p
     path = batch(project, tmp_path)
     (path.parent / "batch_summary.json").write_text("{")
     assert app.read_batch_display(path)[2] == {}
+
+
+@pytest.mark.parametrize("changed", [None, "manifest", "setup", "journal"])
+def test_display_trusts_only_bound_approved_setup_without_rewriting_recorded_status(project, tmp_path, changed):
+    from cs2_data import hud_policy
+
+    path = batch(project, tmp_path)
+    plan = app.read_object(path)
+    summary_path = path.parent/"batch_summary.json"
+    write(summary_path, {"plan_sha256": app.hash_file(path), "job_status_counts": {"pending_visual_review": 1},
+                         "jobs": [{"job_id": "test", "status": "pending_visual_review"}], "accepted_sample_count": 0})
+    out = path.parent/"runs/test/render/attempt-001"
+    manifest = out/"capture.render.json"
+    render = {**hud_policy._expected_setup(), "render_status": "video_ready_timing_unverified",
+              "source_job": plan["jobs"][0]["job"]}
+    if changed == "setup":
+        render["renderer_profile"] = "different"
+    write(manifest, render)
+    state_path = path.parent/"batch_state.json"
+    write(state_path, {"schema_version": 1, "profile": plan["profile"],
+          "plan_sha256": "changed" if changed == "journal" else app.hash_file(path), "jobs": {"test": {"stages": {
+              "render": [{"attempt": 1, "status": "completed", "out": str(out),
+                          "files": {str(manifest): app.hash_file(manifest)},
+                          "result": {"status": "verified_render_artifacts", "render_manifest": str(manifest)}}]}}}})
+    if changed == "manifest":
+        write(manifest, {})
+    before = {file: file.read_bytes() for file in (summary_path, state_path, manifest)}
+    result = app.read_batch_display(path)[2]
+    row = result["jobs"][0]
+    assert row["status"] == "pending_visual_review" and result["accepted_sample_count"] == 0
+    if changed is None:
+        assert row["display_status"] == "ready_for_acceptance"
+        assert row["hud_policy_current"]["visual_review_performed"] is False
+    elif changed == "setup":
+        assert row["display_status"] == "unsupported_capture_setup"
+    else:
+        assert "display_status" not in row
+    assert all(file.read_bytes() == data for file, data in before.items())

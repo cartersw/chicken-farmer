@@ -66,3 +66,20 @@ def test_invalid_player_fails_before_preparing_sources(project, tmp_path, monkey
     monkeypatch.setattr(app, "prepare_sources", lambda *args: pytest.fail("Invalid player must not start preparation"))
     with pytest.raises(ValueError, match="Steam ID"):
         app.plan_captures(runner, [], steam_id="0")
+
+
+def test_twenty_second_player_plan_forwards_exact_id_and_bounded_ticks(project, source, tmp_path, monkeypatch):
+    runner = task(project, tmp_path)
+    commands = []
+
+    def command(label, arguments):
+        commands.append(arguments)
+        write(Path(arguments[arguments.index("--out") + 1]) / "batch/batch_plan.json", {"fixture": True})
+        return 0
+
+    monkeypatch.setattr(runner, "command", command)
+    assert app.plan_captures(runner, [source.demo], clip_seconds=20, steam_id="76561198323592528").is_file()
+    arguments = commands[0]
+    assert arguments[arguments.index("--clip-ticks") + 1] == "1280"
+    assert arguments[arguments.index("--steam-id") + 1] == "76561198323592528"
+    assert "--execute" not in arguments

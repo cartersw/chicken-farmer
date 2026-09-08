@@ -1,14 +1,21 @@
 # Evidence-bound sample acceptance
 
-## Current result and workflow
+## Publication history and current workflow
 
-**The current v2 competitive corpus has 1,692 accepted samples and 68
+**The last published competitive corpus had 1,692 accepted samples and 68
 rejected candidates across seven clips on Dust2 and Nuke.** Each sample contains
 eight images and masked 32 Hz angular/control targets. Use the
 [competitive workflow](COMPETITIVE_ACCEPTANCE.md), [tensor loader](TRAINING_DATASET.md)
-and [current milestone](progress/ACTION_COVERAGE_AND_THROUGHPUT.md).
+and [the recorded milestone](progress/ACTION_COVERAGE_AND_THROUGHPUT.md).
 
-| Clip | Accepted | Rejected | Current publication |
+The source-proof profile is now `cs2-competitive-replay-source-proof-v3`, while
+the outer acceptance schema remains v2. The publications below bind earlier
+proof and source-code hashes and have not been reverified under this change.
+The current loader requires fresh numerical acceptance publications; trusting
+the approved HUD setup does not upgrade historical partitions. Existing reports
+remain unchanged, and the earlier 1,692 count is not a new acceptance result.
+
+| Clip | Accepted | Rejected | Last published result |
 | --- | ---: | ---: | --- |
 | Dust2 round 8, ordinary | 310 | 10 | [Acceptance](../data/collections/action-coverage-001/batch/runs/7d85cdc5424882107fa8e918/acceptance/attempt-001/competitive_acceptance.json) |
 | Nuke round 7, ordinary | 302 | 18 | [Acceptance](../data/collections/action-coverage-001/batch/runs/de80011735c3c92204241e4d/acceptance/attempt-001/competitive_acceptance.json) |
@@ -18,7 +25,7 @@ and [current milestone](progress/ACTION_COVERAGE_AND_THROUGHPUT.md).
 | Nuke round 3, refreshed | 153 | 7 | [Acceptance](../data/batches/competitive-expansion-001/runs/5ebb0db256cd61709ee245af/acceptance/attempt-003/competitive_acceptance.json) |
 | Dust2 round 3 pilot, refreshed | 153 | 7 | [Acceptance](../data/accepted/dust2-competitive-controls-006-v3/competitive_acceptance.json) |
 
-There are **3,384 valid angular fields and 125,240 valid button fields**,
+Those publications recorded **3,384 valid angular fields and 125,240 valid button fields**,
 including positive reload labels. Unknowns remain masked. All 55 seconds of
 source footage belong to one BO3 training group; validation/test remain empty.
 The new Nuke round 7 capture retains eight histories rejected at an ambiguous
@@ -31,7 +38,7 @@ accepted / 24 rejected; its first Nuke zero result was later reissued after fixi
 an absolute-clock cap. The [single-command 016 pilot](../data/accepted/dust2-causal-016-v1/causal_acceptance.json)
 reported 129 / 31. The [initial strict campaign](../data/validation-campaigns/dust2-three-player-v1/campaign_manifest.json)
 reported 0 / 480. Zero counts below refer to these older contracts/captures, not the
-current corpus. Do not add historical republications to current counts.
+last published corpus. Do not add historical republications to those counts.
 
 These workflows have different target definitions. The historical strict workflow
 requires proof of action timing inside its assigned frame intervals, including

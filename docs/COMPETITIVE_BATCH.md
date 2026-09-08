@@ -103,15 +103,22 @@ Each job advances through these durable stages:
 1. Protected Windows render, followed by source, frame and restoration checks.
 2. Diagnostic ingestion, timing, alignment and viewer preparation.
 3. Current-profile synchronization audit.
-4. Original-image HUD contact sheets and source-bound review material.
+4. Compatibility with the user-approved current HUD capture setup.
 5. Independent competitive acceptance and accepted/rejected sample partitions.
 
-Stage 4 pauses at `pending_visual_review` until a complete-image review is
-registered by the acceptance verifier. Generated sheets, successful mounting
-and editable approval flags do not approve a capture. Inspect every original
-image, record the reviewed hashes through the existing HUD review workflow,
-then repeat the same runner command. Acceptance has not been published while
-the run is waiting at this review boundary.
+The current setup uses `user_approved_capture_setup` as its HUD acceptance
+basis. Routine jobs advance without generating contact sheets or waiting for
+manual review. This records trust in the fixed approved renderer/plugin/resource
+setup; it does not claim complete-image inspection. Source, clock, POV, pixel
+integrity and restoration checks still run. Unsupported setup metadata reports
+a compatibility failure. The [HUD review tool](HUD_REVIEW.md) is optional for
+investigating a specific issue.
+
+For journal compatibility, this step retains the `hud_review` stage name but
+writes a small `hud_policy.json` receipt with status `hud_setup_trusted`. Its
+profile is `cs2-trusted-hud-capture-setup-v1`, with
+`visual_review_performed: false`. The HUD decision compares recorded setup
+metadata; it does not read frame pixels or review sheets.
 
 Successful prior stages are checked again and reused. The runner records
 attempts in `batch_state.json`, with file hashes and stage outcomes, and writes
@@ -157,7 +164,7 @@ batch.
 
 The current runner is deliberately bounded to 1–24 jobs per invocation and
 32–1280 even ticks per clip. It supports multiple sources, rounds and POVs, but
-does not schedule an entire match automatically, approve HUD images, invent
+does not schedule an entire match automatically, claim human image review, invent
 missing target fields or provide independent validation/test matches. Accepted
 partitions can subsequently be opened by the [tensor loader](TRAINING_DATASET.md).
 

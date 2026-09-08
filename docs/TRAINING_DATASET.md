@@ -7,6 +7,14 @@ rehashed label file cannot substitute for that verification.
 
 This stage prepares data. It does not run model training.
 
+The [decided trainer baseline](TRAINER_DESIGN.md) is 640x360, full-color RGB,
+8 bits per channel, with eight consecutive frames at 32 FPS. Its next
+implementation uses rolling decompression, a bounded uint8 frame cache, shuffled
+temporal examples and background prefetching. Train this profile first and
+revisit the format only if learning progress warrants it; no alternative-format
+comparisons are scheduled. These are planned trainer settings; this loader
+still defaults to native RGB resolution and has no compressed-frame cache.
+
 ## Tensor interface
 
 Each sample returns only these tensors:
@@ -89,13 +97,17 @@ Nuke and Cache demos into their one BO3. This series maps to training. Validatio
 and test are therefore empty until additional independent series are supplied;
 the loader never fills them with another player or round from this BO3.
 
-## Current action-coverage batch
+## Last published action-coverage batch
 
-The [current report](../data/training/action-coverage-001/batch_report.json)
-combines seven freshly verified publications with **1,692 accepted samples**,
+The [recorded report](../data/training/action-coverage-001/batch_report.json)
+combines seven publications verified at that milestone with **1,692 accepted samples**,
 3,384 available angular fields and 125,240 available button fields.
 The [coverage report](../data/validation/action-coverage-001/accepted-control-coverage.json)
 counts known positive/negative fields separately from unknowns.
+
+These publications predate source-proof v3 and need fresh numerical publication
+before use with the current loader. Their recorded counts and tensor results
+are historical evidence, not revalidation performed by the trainer design.
 
 The four illustrative samples respectively include valid positive reload, forward,
 primary attack and reload targets. PyTorch 2.8.0+cpu saves RGB `[4,8,3,180,320]`, aim `[4,2]` and

@@ -1,4 +1,4 @@
-"""Independent proof composition must not turn staging or clock matches into trust."""
+"""The setup policy cannot replace timing, source or pixel evidence."""
 from copy import deepcopy
 import hashlib
 import json
@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from cs2_data import competitive_replay_proof as proof
+from cs2_data import hud_policy
 from cs2_data.control_label_audit import canonical_row_sha256
 
 
@@ -24,7 +25,7 @@ def frame_inputs():
         "pov_evidence": [{"frame_index": i, "status": "passed"} for i in range(3)]}
     bounds = {"frames": [{"capture_index": i, "status": "verified", "verified": True,
         "upper_server_tick": 16703+2*i, "upper_source_demo_tick": 6000+2*i} for i in range(3)]}
-    hud = {"status": "verified", "verified_frame_indices": [0, 1, 2]}
+    hud = hud_policy.trusted_hud_policy(hud_policy._expected_setup())
     return frames, inventory, records, sync, bounds, {"run_id": "owned-run"}, hud
 
 
@@ -58,7 +59,7 @@ def test_absolute_clock_extension_keeps_finite_forward_32hz_cadence_required(fra
     ("packet", "packet_information_bound_unknown"), ("numeric_unknown", "packet_information_bound_unknown"),
     ("pause", "native_demo_pause_unknown_or_active"), ("missing_pawn", "native_clock_or_pawn_segment_unavailable"),
     ("during_reset", "native_clock_segment_changed_during_submission"),
-    ("cadence", "observed_32hz_render_cadence_unverified"), ("hud", "competitive_hud_visual_review_unavailable")])
+    ("cadence", "observed_32hz_render_cadence_unverified"), ("hud", "competitive_hud_capture_setup_unsupported")])
 def test_missing_companion_proof_is_not_replaced_by_other_matches(frame_inputs, change, reason):
     frames, _, records, sync, bounds, _, hud = frame_inputs
     if change == "pixel": sync["pixel_correspondence"]["verified"] = False
@@ -70,9 +71,62 @@ def test_missing_companion_proof_is_not_replaced_by_other_matches(frame_inputs, 
     elif change == "missing_pawn": del records[1]["native_observation"]["observed_pov"]["pawn_handle"]
     elif change == "during_reset": records[1]["native_clock_after"]["client_generation"] += 1
     elif change == "cadence": frames[1]["render_time_seconds_end"] += .01
-    elif change == "hud": hud["verified_frame_indices"].remove(1)
+    elif change == "hud": hud["scope"] = "every_capture_from_any_renderer"
     result = proof._frame_proofs(*frame_inputs)
     assert not result[1]["verified"] and reason in result[1]["reason_codes"]
+
+
+def test_trusted_setup_does_not_claim_per_image_visual_review(frame_inputs):
+    hud = frame_inputs[-1]
+    assert hud["visual_review_performed"] is False
+    assert "verified_frame_indices" not in hud
+    assert all(frame["verified"] for frame in proof._frame_proofs(*frame_inputs))
+
+
+def test_legacy_visual_approval_is_not_silently_used_as_the_new_policy(frame_inputs):
+    frame_inputs[-1].clear()
+    frame_inputs[-1].update(status="verified", verified_frame_indices=[0, 1, 2])
+    assert all("competitive_hud_capture_setup_unsupported" in frame["reason_codes"]
+        for frame in proof._frame_proofs(*frame_inputs))
+
+
+def test_recomputation_uses_setup_policy_after_render_contract_without_manual_review(tmp_path, monkeypatch):
+    parsed, dataset = tmp_path/"parsed", tmp_path/"dataset"
+    capture = {name+suffix: str(tmp_path/name) if suffix == "_path" else "a"*64
+        for name in ("ledger", "render_manifest", "frame_inventory") for suffix in ("_path", "_sha256")}
+    render = {**hud_policy._expected_setup(), "capture_frame_files": str(tmp_path/"archive"),
+        "capture_frame_files_sha256": "b"*64}
+    objects = {dataset/"timing/clip.json": {"demo_id": "c"*64, "round_id": 3, "steam_id": "123",
+        "player_slot": 9, "capture_evidence": capture}, tmp_path/"render_manifest": render,
+        tmp_path/"frame_inventory": {"frames": [{"path": str(tmp_path/"frame.tga"), "sha256": "d"*64}]}}
+    watched, calls = [], []
+    monkeypatch.setattr(proof._Sources, "watch", lambda self, path, expected=None: watched.append(Path(path)))
+    monkeypatch.setattr(proof, "read_json", lambda path: objects[path])
+    monkeypatch.setattr(proof, "read_ledger", lambda path: [{"frame_index": 0,
+        "source_demo_tick_start": 6000, "source_demo_tick_end": 6002}])
+    monkeypatch.setattr(proof, "parsed_manifest", lambda *args: {"demo_id": "c"*64, "tick_rate": 64,
+        "source_path": str(tmp_path/"source.dem"),
+        "files": {name: "e"*64 for name in ("usercmd.parquet", "player_state.parquet", "rounds.parquet")}})
+    monkeypatch.setattr(proof, "_render_contract", lambda *args: calls.append("render_contract"))
+    def apply_policy(actual):
+        assert actual is render
+        assert calls == ["render_contract"]
+        calls.append("hud_policy")
+        result = hud_policy.trusted_hud_policy(actual)
+        assert hud_policy.policy_allows_capture(result)
+        return result
+    monkeypatch.setattr(proof, "trusted_hud_policy", apply_policy)
+    monkeypatch.setattr(proof, "_hud_review", lambda *args: pytest.fail("Production must not read manual HUD reviews"))
+    class ReachedSynchronization(Exception):
+        pass
+    def synchronization(*args, **kwargs):
+        raise ReachedSynchronization
+    monkeypatch.setattr(proof, "recompute_synchronization", synchronization)
+    with pytest.raises(ReachedSynchronization):
+        proof.recompute_competitive_replay_proof(parsed, dataset, tmp_path/"clock", tmp_path/"context")
+    assert calls == ["render_contract", "hud_policy"]
+    assert Path(hud_policy.__file__).resolve() in watched
+    assert proof.PROFILE == "cs2-competitive-replay-source-proof-v3"
 
 
 @pytest.mark.parametrize("field", ["pawn_handle", "controller_handle", "client_generation", "demo_start_tick"])

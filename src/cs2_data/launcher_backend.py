@@ -339,8 +339,8 @@ def plan_captures(task: TaskRunner, demos, *, match_id="", clip_seconds=10, clip
     from .competitive_coverage import normalize_steam_id
 
     steam_id = normalize_steam_id(steam_id)
-    if type(clips) is not int or not 1 <= clips <= 8 or clip_seconds not in (5, 10):
-        raise ValueError("Choose 1-8 clips of 5 or 10 seconds.")
+    if type(clips) is not int or not 1 <= clips <= 8 or clip_seconds not in (5, 10, 20):
+        raise ValueError("Choose 1-8 clips of 5, 10 or 20 seconds.")
     task.tool("cs2-clocks")
     sources = prepare_sources(task, demos, match_id)
     destination = task.run_dir / "collection"
@@ -413,7 +413,55 @@ def read_batch_display(path: Path):
                 valid = False
         if not valid:
             summary = {}
+    if summary:
+        _add_capture_policy_display(path, doc, summary)
     return path, doc, summary
+
+
+def _add_capture_policy_display(path, plan, summary):
+    """Annotate historical statuses using saved setup metadata, never image scans."""
+    from .hud_policy import policy_allows_capture, trusted_hud_policy
+
+    for row in summary.get("jobs", []):
+        row.pop("hud_policy_current", None)
+        row.pop("display_status", None)
+    try:
+        state = read_object(path.parent / "batch_state.json")
+        if (state.get("schema_version") != 1 or state.get("profile") != plan["profile"] or
+                state.get("plan_sha256") != hash_file(path) or not isinstance(state.get("jobs"), dict)):
+            return
+    except (OSError, ValueError):
+        return
+    items = {item["job_id"]: item for item in plan["jobs"]}
+    for row in summary.get("jobs", []):
+        if row["status"] != "pending_visual_review":
+            continue
+        try:
+            attempts = state["jobs"][row["job_id"]]["stages"]["render"]
+            latest = attempts[-1]
+            expected = (path.parent / "runs" / row["job_id"] / "render" / f"attempt-{len(attempts):03d}").resolve()
+            out = Path(latest["out"])
+            if (not isinstance(attempts, list) or latest.get("status") != "completed" or
+                    latest.get("attempt") != len(attempts) or not expected.is_relative_to(path.parent) or
+                    out.resolve() != expected or out.is_symlink()):
+                continue
+            manifests = list(out.glob("*.render.json"))
+            if len(manifests) != 1 or manifests[0].is_symlink():
+                continue
+            manifest = manifests[0].resolve()
+            if (not manifest.is_relative_to(expected) or latest.get("files", {}).get(str(manifest)) != hash_file(manifest)):
+                continue
+            render = read_object(manifest)
+            if (render.get("render_status") != "video_ready_timing_unverified" or
+                    render.get("source_job") != items[row["job_id"]]["job"] or
+                    latest.get("result", {}).get("status") != "verified_render_artifacts" or
+                    Path(latest["result"].get("render_manifest", "")).resolve() != manifest):
+                continue
+            row["hud_policy_current"] = trusted_hud_policy(render)
+            row["display_status"] = ("ready_for_acceptance" if policy_allows_capture(row["hud_policy_current"])
+                                     else "unsupported_capture_setup")
+        except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+            continue
 
 
 def capture_arguments(task, plan):

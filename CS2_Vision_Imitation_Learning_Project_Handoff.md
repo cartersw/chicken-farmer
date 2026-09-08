@@ -4,6 +4,15 @@
 **Research focus:** professional CS2 demos from HLTV, high-fidelity `UserCmd` extraction, synchronized first-person rendering, behavioral cloning, and real-time visual control  
 **Last updated:** 2026-09-05  
 
+**Current trainer decisions (2026-09-08):** see
+[the trainer design](docs/TRAINER_DESIGN.md) and
+[implemented tensor contract](docs/TRAINING_DATASET.md). They supersede this
+handoff's illustrative trainer input/storage choices. The decided baseline is
+640x360, full-color RGB, 8 bits per channel, eight consecutive image-only frames
+at 32 FPS, with rolling decompression, frame reuse and background prefetching.
+Train this baseline first; format adjustments depend on a lack of learning
+progress and observed failures. The original milestone plan below remains historical.
+
 ---
 
 ## 0. Executive summary

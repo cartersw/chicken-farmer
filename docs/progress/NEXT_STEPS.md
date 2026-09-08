@@ -2,9 +2,38 @@
 
 **Updated: 2026-09-08.** Evidence: [STATUS.md](STATUS.md).
 
+The user has now inspected the nine new clips and said they look fine; the
+[capture-bound feedback](../../data/validation/round-progression-001/user_visual_feedback.json)
+records that assessment without inventing original-image review coverage.
+They explicitly chose to trust the current capture HUD setup, without recurring
+manual review, automated overlay detectors or spot checks. The implementation
+now records `user_approved_capture_setup` for supported fixed setup metadata,
+without claiming complete-image inspection. Routine batches write a small
+policy receipt instead of generating HUD sheets. Numerical timing/source,
+POV, original-pixel integrity and restoration checks remain independent.
+An incompatible setup reports a compatibility failure; it does not start a
+new visual-review workflow. The manual HUD tool is optional for diagnosis.
+
+The source-proof profile is now `cs2-competitive-replay-source-proof-v3`, with
+outer acceptance schema v2 unchanged. Before current loader/training use,
+produce fresh numerical acceptance publications for the retained clips:
+existing publications bind older proof/code hashes. The HUD setup decision
+does not upgrade those partitions, and no historical report was rewritten.
+
+The [round progression trial](ROUND_PROGRESSION_TRIAL.md) stopped at the user's
+requested nine captures: 166.75 seconds, 5,336 original images and approximately
+28.09 GB retained. Active processing took 34 minutes 41.8 seconds; final
+settings, binary and HUD cleanup checks pass. The final two planned clips
+remain intentionally unrecorded, so two complete rounds are not claimed.
+Next, publish independently evaluated accepted/rejected samples,
+retain the source-clock ambiguity affecting eight prospective histories, and
+verify a real tensor batch. The ordered report provides video and review links
+without granting acceptance. Further capture requires a new user request.
+
 Action-aware selection, longer protected captures, bounded source reuse and
-faster HUD review are implemented and verified. The [current milestone](ACTION_COVERAGE_AND_THROUGHPUT.md)
-contains **1,692 accepted samples** with positive reload/control fields.
+faster optional HUD review are implemented and verified. The [last published milestone](ACTION_COVERAGE_AND_THROUGHPUT.md)
+recorded **1,692 accepted samples** with positive reload/control fields under
+the earlier proof. That count has not been reverified by this policy change.
 Next priorities are additional independent competitive series for validation/test,
 broader weapon/action coverage, then a small CNN/GRU baseline and masked losses.
 All current clips belong to one BO3; exact within-tick events remain masked.
@@ -14,18 +43,22 @@ The [desktop launcher](../DESKTOP_APP.md) is implemented: folder selection,
 source preparation, named player selection, bounded planning, live logs and one-clip protected run/resume.
 The UI's preparation/planning route passed a real Dust2 smoke run, followed by
 a named-player GUI run producing four ten-second Ckanic clips across four rounds.
-Its capture
-callback uses the existing runner; a live capture started from the GUI is still
+The sample duration choices are now 5, 10 and 20 seconds; the default remains
+10. Its capture callback uses the existing runner; a live capture started from the GUI is still
 to be exercised. Parallel instances and the full-player queue remain future extensions.
 Player-scoped discovery filters before bounded sampling and refuses to substitute
 another player. Malformed batch display and stale review-attempt handling are fixed.
 
-The user selected **Ckanic on Dust2** for a full-player feasibility plan.
-See [the measured estimate and proposed setup](FULL_PLAYER_DEMO_PLAN.md):
-exhaustive interval tracking, round-tail/history handling and a total disk/time
-budget are still needed. Start with two complete rounds, then resume the same
-queue through the match after measuring the full pipeline. The whole-demo run
-has not started; automatic visual acceptance is also still proposed.
+The user selected **Ckanic on Dust2** for the full-player feasibility plan.
+The bounded selected-round implementation now tracks every selected interval
+and exclusion, groups shorter tails, and enforces per-session resource checks.
+Its eleven-clip plan explicitly omits two odd final ticks, while the user-limited
+nine-clip recording also leaves the final 22 planned seconds unrecorded. It does
+not stitch histories across clips.
+Before expanding to the [full player POV](FULL_PLAYER_DEMO_PLAN.md), implement
+cross-clip sequence sampling and reset rules, deduplicate the overlap with the
+existing round-3 pilot, and extend the bounded registry across all eligible
+rounds while preserving clock/report limits. The whole-demo run has not started.
 
 The approved first turning/button investigation is complete. See
 [turn and button results](TURN_AND_BUTTON_CALIBRATION.md): continuous turns
@@ -73,7 +106,8 @@ audit passes all twelve mouse and ten keyboard checks. See
 - [x] Add bounded resumable processing across rounds/players/maps while retaining settings and acceptance guards.
 - [x] Reduce repeated prefix scanning with verified bounded compression, halve launches for ten-second collections, and retain exact source checks.
 - [ ] Profile full batch acceptance before large ingestion; packet-scan and HUD speedups do not establish equal gains for complete verification.
-- [x] Review four additional ten-second captures with one-pass sheets and a local index; every original image still needs actual review.
+- [x] Review four additional ten-second captures with one-pass sheets and a local index under the historical manual-review workflow.
+- [x] Replace recurring HUD review with the user's approved current capture setup; preserve numerical/source checks and leave manual review optional.
 - [ ] Resolve checkpoint duplicates only with complete byte-bound clock/packet evidence; preserve the eight current affected-history rejections.
 
 These calibration probes are controlled local tests. Training/evaluation corpus
@@ -132,7 +166,8 @@ Evidence: all 160 trial-016 image bounds and the endpoint verify. See
 
 ## 2. First accepted subset delivered; expand coverage next
 
-- [x] Produce accepted/rejected manifests with exact image/command references: current seven-clip control subset 1,692 accepted/68 rejected; historical single-command pilot 129/31.
+- [x] Produce accepted/rejected manifests with exact image/command references: last published seven-clip control subset 1,692 accepted/68 rejected; historical single-command pilot 129/31.
+- [ ] Issue fresh numerical publications under source-proof v3 before loading the retained partitions with the current implementation.
 - [x] Recompute acceptance during loading and retain raw command/subtick provenance.
 - [x] Add balanced ordinary/reload/sustained-fire clips across four new rounds/POVs; retain movement/crouch and unresolved jump activity.
 - [ ] Expand weapon diversity, rare held/transition targets and ordinary play across independent series; do not equate activity bits with exact presses.
@@ -146,16 +181,21 @@ meaningful negative cases. The global validator may still reject incomplete demo
 
 ## 3. Training data interface
 
+- [x] Record the [decided trainer baseline](../TRAINER_DESIGN.md): 640x360 full-color RGB, 8 bits per channel, eight consecutive frames at 32 FPS, rolling decompression, bounded uint8 reuse and background prefetching.
 - [x] Implement a tensor loader using eight accepted RGB images and future-command targets, with no previous-action input features.
 - [x] Define fixed two-command 32 Hz targets and validity masks; preserve variable raw provenance separately and leave exact event channels unavailable.
 - [x] Split deterministically by match/series; keep the current three maps together in training.
 - [x] Materialize and independently reload a real CPU batch: four samples, `[4,8,3,180,320]` RGB, 8 valid angular fields, 320 valid button fields including 24 positives; 1,692/0/0 series split.
 - [ ] Collect additional independent series for validation/test; both are currently empty.
+- [ ] Implement a versioned prepared-frame manifest/reader, indexed compressed storage and shared source-demo references without changing accepted labels or causal bounds.
+- [ ] Implement bounded rolling frame reuse, background preparation, deterministic chunk mixing, batch prefetch and cancellation; preserve exact epoch coverage and sequence boundaries.
+- [ ] Measure cached/uncached equivalence, decode reuse, memory bounds and complete trainer throughput; the existing serial decoding benchmark is not a training-speed result.
 
 ## 4. Train and evaluate
 
 - [ ] Implement the handoff's small CNN/GRU behavioral-cloning baseline.
 - [ ] Train aim, movement and button heads.
 - [ ] Compare held-out metrics against trivial baselines and inspect failures.
+- [ ] Train the decided RGB baseline and track learning progress, held-out behavior, throughput and memory. Revisit the format only if learning stalls and the evidence warrants a change; alternative color/resolution experiments are outside the active plan.
 
 Training and live control remain later milestones.

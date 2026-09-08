@@ -5,9 +5,16 @@ both the historical 14178 replay profile and local 14180 input calibration.
 `accept-competitive-controls` prepares eight-image histories with two future
 recorded command boundaries per 32 Hz target. It does not train a model.
 
-The [current seven-clip collection](progress/ACTION_COVERAGE_AND_THROUGHPUT.md)
-contains 1,692 accepted samples. [Current publications and counts](ACCEPTANCE.md)
-replace older same-frame republications for training.
+The current source-proof profile is `cs2-competitive-replay-source-proof-v3`;
+the outer acceptance schema remains v2. Earlier accepted publications bind old
+proof and source-code hashes, so the current loader requires fresh numerical
+acceptance publications. The approved HUD setup does not silently upgrade old
+partitions. No historical reports have been rewritten.
+
+The [last published seven-clip collection](progress/ACTION_COVERAGE_AND_THROUGHPUT.md)
+had 1,692 accepted samples. That count was verified under the earlier proof,
+not reverified by this HUD policy change. [Publication history](ACCEPTANCE.md)
+retains those results; regenerate acceptance before current training use.
 
 ## Evidence required
 
@@ -71,13 +78,18 @@ Historical v1 acceptance publications remain archived. Because opening an
 acceptance recomputes the current implementation, use a fresh v2 publication
 after this change rather than editing the old report or its hashes.
 
-Full visual acceptance also requires review of every original image in the
-capture, registered by exact capture, resource and review hashes. This is a
-deliberately narrow manual review boundary. Successful HUD staging or an edited
-`visual_acceptance_verified` flag cannot authorize another capture. Scaling
-the corpus still requires visual review. The batch runner prepares hash-bound
-contact sheets for every original image and pauses before acceptance until
-the completed review has been explicitly registered.
+The user approved the current capture HUD setup after viewing the nine-clip
+round trial. Supported captures now use `user_approved_capture_setup` as their
+HUD acceptance basis, bound to the fixed renderer/plugin/resource metadata.
+There is no recurring manual HUD gate, automated overlay detector or required
+spot check. This is an explicit setup assumption, not a claim that every frame
+was inspected. Incompatible setup metadata fails normal compatibility checks;
+it does not automatically trigger a new visual-review process.
+
+Numerical timing, source reconstruction, first-person identity, original-image
+pixel correspondence and integrity checks remain required. Existing manual
+review records are historical evidence; the [HUD review tool](HUD_REVIEW.md)
+remains an optional diagnostic. Routine batches do not create contact sheets.
 
 ## Commands
 

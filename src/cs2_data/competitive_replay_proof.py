@@ -1,9 +1,10 @@
 """Recompute the current renderer / original 14178 command proof independently.
 
 Native replay and recording-source contracts are separate fixed profiles. Full
-original commands are reconstructed again from the beginning of the demo. HUD
-approval is restricted to immutable, explicitly reviewed pilot captures; editing
-a render manifest's visual_acceptance_verified field cannot enable samples.
+original commands are reconstructed again from the beginning of the demo. The
+HUD criterion uses the explicit user-approved capture-setup policy, without
+recurring manual or automatic visual inspection. This assumption does not
+establish per-image HUD correctness or replace the remaining capture proofs.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ import pyarrow.parquet as pq
 from .causal_acceptance import _command_source, _same, _scan_through, _source_envelopes
 from .competitive_source_verification import reverify_competitive_source
 from .control_label_audit import canonical_row_sha256
+from .hud_policy import policy_allows_capture, trusted_hud_policy
 from .io import parsed_manifest, read_json, sha256_file
 from .jobs import phase_evidence
 from .native_replay_profile import CURRENT_PROFILE, get_native_replay_profile, header_matches_profile
@@ -30,7 +32,7 @@ from .synchronization import recompute_synchronization
 from .timing import read_ledger
 from .validation import load_state_context
 
-PROFILE = "cs2-competitive-replay-source-proof-v2"
+PROFILE = "cs2-competitive-replay-source-proof-v3"
 PROJECT = Path(__file__).resolve().parents[2]
 SOURCE_PATCH = 14178
 SOURCE_SERVER_SHA256 = "9e5749d77dcb68883477feae751a3f28068d119ec145edcb0e4d48d15b538d36"
@@ -63,7 +65,8 @@ SOURCE_RANGES = (
 )
 SOURCE_SLOTS = ((0x18077B8, 12, 0xD3D250), (0x18077B8, 83, 0xD3F450), (0x17A16C0, 25, 0xAA4350))
 
-# Entries are added only after inspecting the complete archived pilot sequence.
+# Historical diagnostic registry, no longer used by production recomputation.
+# Entries were added only after inspecting the complete archived pilot sequence.
 # Key: exact capture-ledger SHA256. Value: fixed review path and review SHA256.
 # There is deliberately no caller-supplied review path or approval boolean.
 HUD_REVIEWS = {
@@ -255,6 +258,7 @@ def _gameinfo_mount_proof(original, journal, run_id):
 
 
 def _hud_review(render, inventory, watch):
+    """Read a historical review for optional diagnostics, never as a live gate."""
     registered = HUD_REVIEWS.get(render["capture_ledger_sha256"])
     if registered is None:
         return {"status": "unknown", "reason_codes": ["competitive_hud_visual_review_unavailable"],
@@ -287,6 +291,7 @@ def _indexed(rows, key, count, description):
 
 def _frame_proofs(frames, inventory, records, synchronization, bounds, render, hud):
     count = len(frames)
+    hud_setup_allowed = policy_allows_capture(hud)
     movies = _indexed([r for r in records if r.get("event") == "movie_frame"], "capture_index", count, "native movie identity")
     native = _indexed([r for r in synchronization["native_message_clock_audit"]["frames"] if r.get("event") == "movie_frame"],
         "frame_index", count, "native clock identity")
@@ -325,8 +330,8 @@ def _frame_proofs(frames, inventory, records, synchronization, bounds, render, h
             not math.isfinite(start) or not math.isfinite(end) or
             not 0 <= start < end or abs((end-start)-.03125) > .0001):
             reasons.add("observed_32hz_render_cadence_unverified")
-        if hud.get("status") != "verified" or index not in hud.get("verified_frame_indices", []):
-            reasons.add("competitive_hud_visual_review_unavailable")
+        if not hud_setup_allowed:
+            reasons.add("competitive_hud_capture_setup_unsupported")
         image = inventory[index]
         _require(type(image.get("capture_index")) is int and image["capture_index"] == index,
             "Competitive image inventory index mismatch")
@@ -363,7 +368,7 @@ def recompute_competitive_replay_proof(parsed: Path, dataset: Path, network_cloc
     # Revalidation depends on these implementations as well as retained data.
     for name in ("competitive_replay_proof", "competitive_control", "competitive_source_verification", "competitive_buttons", "command_reverification", "control_labels", "control_label_audit",
         "causal_acceptance", "acceptance", "clock_evidence", "packet_evidence", "packet_bounds", "native_replay_profile",
-        "synchronization", "timing", "validation", "jobs", "io", "normalize", "server_command_support"):
+        "synchronization", "timing", "validation", "jobs", "io", "normalize", "server_command_support", "hud_policy"):
         watch(Path(__file__).with_name(name+".py"))
     for path in (parsed/"manifest.json", dataset/"timing/clip.json", dataset/"timing/frames.jsonl", network_clock, state_context):
         watch(path)
@@ -393,7 +398,7 @@ def recompute_competitive_replay_proof(parsed: Path, dataset: Path, network_cloc
     archive_path = Path(render["capture_frame_files"])
     watch(archive_path if archive_path.is_absolute() else render_path.parent/archive_path, render["capture_frame_files_sha256"])
     render_contract = _render_contract(render, render_path, records, watch)
-    hud = _hud_review(render, inventory, watch)
+    hud = trusted_hud_policy(render)
     synchronization = recompute_synchronization(parsed, dataset, network_clock, native_profile=CURRENT_PROFILE)
     through = _scan_through(records, frames)
     _require(type(through) is int and 1 <= through <= 2_147_483_647, "Competitive source packet prefix is outside the demo tick domain")
