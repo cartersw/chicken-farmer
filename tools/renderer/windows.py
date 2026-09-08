@@ -27,9 +27,13 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 import settings_guard
+import hud_override
 
 TARGET_PATCH = "1.41.6.5"
 PROFILE = "windows-pilot-v5-native-player-hud"
+COMPETITIVE_PROFILE = "cs2-14180-competitive-replay-v1"
+COMPETITIVE_RENDERER_PROFILE = "windows-14180-competitive-hud-v1"
+HUD_ARCHIVE_SEARCH_PROFILE = "competitive-hud-archive-search-v2"
 HUD_COMMANDS = [
     "cl_drawhud 1", "r_drawviewmodel 1", "cl_draw_only_deathnotices 0", "hud_scaling 1",
     "spec_show_xray 0", "spec_cameraman_xray 0", "spec_autodirector 0",
@@ -43,6 +47,7 @@ HUD_COMMANDS = [
     "r_show_build_info 0", "cl_trueview_show_status 0",
 ]
 MAX_PILOT_TICKS = 320
+MAX_COMPETITIVE_TICKS = 1280
 MOD_RE = re.compile(r"chicken-render-[0-9a-f]{32}\Z")
 SETTINGS_SELECTORS = {
     "steam_local_cfg": ["cs2_*.vcfg", "cs2_*.vcfg_lastclouded", "cs2_video.txt", "cs2_video.txt.bak", "*.cfg"],
@@ -160,10 +165,12 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
     atomic_bytes(path, (json.dumps(value, indent=2, allow_nan=False) + "\n").encode("utf-8"))
 
 
-def patch_gameinfo(original: bytes, mod_name: str) -> bytes:
-    """Insert exactly one ASCII search path, preserving every original byte."""
+def patch_gameinfo(original: bytes, mod_name: str, *, hud_archive_profile: str | None = None) -> bytes:
+    """Insert fixed run-owned search paths, preserving every original byte."""
     if not MOD_RE.fullmatch(mod_name):
         raise ValueError("Invalid owned game directory name")
+    if hud_archive_profile not in (None, "competitive-hud-archive-search-v1", HUD_ARCHIVE_SEARCH_PROFILE):
+        raise ValueError("Unsupported private HUD archive search profile")
     if b"csgo/chicken-render-" in original:
         raise ValueError("An earlier chicken-render search path remains; repair its journal first")
     expression = rb'(?m)^([ \t]*)(?:"SearchPaths"|SearchPaths)[ \t]*(?:\r?\n[ \t]*)?\{[ \t]*(\r?\n)'
@@ -172,6 +179,18 @@ def patch_gameinfo(original: bytes, mod_name: str) -> bytes:
         raise ValueError("Expected exactly one recognizable SearchPaths block in gameinfo.gi")
     match = matches[0]
     line = match.group(1) + b"\tGame\tcsgo/" + mod_name.encode("ascii") + match.group(2)
+    if hud_archive_profile is not None:
+        # Pin the filename in the recovery format, independent of future helper
+        # updates. Custom VPK names are not discovered by the stock numeric scan.
+        # Source2 appends _dir.vpk when opening the directory and _000.vpk for
+        # chunk zero. Keep v1 reconstruction for already archived journals.
+        leaf = b"pakchicken_hud_dir.vpk" if hud_archive_profile == "competitive-hud-archive-search-v1" else b"pakchicken_hud.vpk"
+        archive = b"csgo/" + mod_name.encode("ascii") + b"/" + leaf
+        mounted = b"".join(match.group(1) + b"\t" + name + b"\t" + archive + match.group(2)
+                            for name in (b"Game", b"Mod"))
+        # First Game also supplies the default write/plugin root. Use our real
+        # owned directory for v2; VPK resources still precede loose files.
+        line = mounted + line if hud_archive_profile == "competitive-hud-archive-search-v1" else line + mounted
     return original[:match.end()] + line + original[match.end():]
 
 
@@ -200,7 +219,7 @@ def restore_gameinfo(journal_path: Path, *, require_idle: bool = True) -> dict[s
     if str(gameinfo) != journal.get("gameinfo_path") or str(backup) != journal.get("backup_path"):
         raise ValueError("Recovery journal paths disagree with their owned locations")
     original = backup.read_bytes()
-    patched = patch_gameinfo(original, journal["mod_name"])
+    patched = patch_gameinfo(original, journal["mod_name"], hud_archive_profile=journal.get("hud_archive_profile"))
     if byte_hash(original) != journal.get("original_sha256") or byte_hash(patched) != journal.get("patched_sha256"):
         raise ValueError("Recovery backup or journal hash mismatch; refusing restoration")
     if require_idle and cs2_pids():
@@ -231,7 +250,7 @@ def restore_gameinfo(journal_path: Path, *, require_idle: bool = True) -> dict[s
 
 
 class GameInfoLease:
-    def __init__(self, game: Path, out: Path, run_id: str):
+    def __init__(self, game: Path, out: Path, run_id: str, *, hud_archive_profile: str | None = None):
         self.game = game.resolve()
         self.out = out.resolve()
         self.run_id = run_id
@@ -241,10 +260,11 @@ class GameInfoLease:
         self.journal_path = self.out / "gameinfo-recovery.json"
         self.lock_path = self.gameinfo.with_name("gameinfo.gi.chicken-render.lock")
         self.owns_lock = False
+        self.hud_archive_profile = hud_archive_profile
 
     def activate(self) -> None:
         original = self.gameinfo.read_bytes()
-        patched = patch_gameinfo(original, self.mod_name)
+        patched = patch_gameinfo(original, self.mod_name, hud_archive_profile=self.hud_archive_profile)
         backup = self.out / "gameinfo.original.gi"
         with backup.open("xb") as handle:
             handle.write(original)
@@ -256,6 +276,8 @@ class GameInfoLease:
             "backup_path": str(backup), "original_sha256": byte_hash(original),
             "patched_sha256": byte_hash(patched), "state": "prepared", "prepared_at": time.time(),
         }
+        if self.hud_archive_profile is not None:
+            journal["hud_archive_profile"] = self.hud_archive_profile
         atomic_json(self.journal_path, journal)
         with self.lock_path.open("x", encoding="utf-8") as handle:
             json.dump({"run_id": self.run_id, "journal_path": str(self.journal_path)}, handle)
@@ -282,6 +304,9 @@ class GameInfoLease:
 def validate_job(job: dict[str, Any], *, max_ticks: int = MAX_PILOT_TICKS) -> dict[str, Any]:
     if job.get("schema_version") != 1 or job.get("timing_clock") != "demo_tick":
         raise ValueError("Expected schema_version=1 and timing_clock=demo_tick")
+    if "competitive_replay_profile" in job:
+        if job["competitive_replay_profile"] != COMPETITIVE_PROFILE or "calibration_replay_profile" in job:
+            raise ValueError("Unsupported or conflicting competitive replay profile")
     if not re.fullmatch(r"[0-9a-f]{64}", str(job.get("demo_id", ""))):
         raise ValueError("demo_id must be a lowercase SHA-256")
     if not re.fullmatch(r"[a-zA-Z0-9-]{1,128}", str(job.get("clip_id", ""))):
@@ -302,8 +327,9 @@ def validate_job(job: dict[str, Any], *, max_ticks: int = MAX_PILOT_TICKS) -> di
         raise ValueError("Video dimensions must be even")
     if job["width"] * 9 != job["height"] * 16:
         raise ValueError("The inspected native HUD profile requires a 16:9 image")
-    if not 4 <= max_ticks <= MAX_PILOT_TICKS:
-        raise ValueError(f"This pilot worker supports --max-ticks between 4 and {MAX_PILOT_TICKS}")
+    capture_limit = MAX_COMPETITIVE_TICKS if job.get("competitive_replay_profile") == COMPETITIVE_PROFILE else MAX_PILOT_TICKS
+    if type(max_ticks) is not int or not 4 <= max_ticks <= capture_limit:
+        raise ValueError(f"This replay profile supports --max-ticks between 4 and {capture_limit}")
     demo = Path(job.get("demo_path", "")).resolve()
     if not demo.is_file() or demo.suffix.lower() != ".dem":
         raise ValueError(f"Source demo does not exist: {demo}")
@@ -316,16 +342,21 @@ def validate_job(job: dict[str, Any], *, max_ticks: int = MAX_PILOT_TICKS) -> di
     effective["end_demo_tick"] = min(end, start + max_ticks)
     # Profile changes must produce a new identity even without interval truncation.
     effective["source_clip_id"] = job["clip_id"]
-    profile_digest = byte_hash(json.dumps({"profile": PROFILE, "hud_commands": HUD_COMMANDS,
-                                         "replay_settle_ticks": 128, "hud_settle_pause_seconds": 6},
-                                        sort_keys=True).encode())
+    profile_spec = {"profile": PROFILE, "hud_commands": HUD_COMMANDS,
+                    "replay_settle_ticks": 128, "hud_settle_pause_seconds": 6}
+    if "competitive_replay_profile" in job:
+        profile_spec.update(profile=COMPETITIVE_RENDERER_PROFILE, native_profile=COMPETITIVE_PROFILE,
+                            hud_resource_sha256=hud_override.RESOURCE_SHA256,
+                            hud_override_profile=hud_override.PROFILE,
+                            hud_archive_search_profile=HUD_ARCHIVE_SEARCH_PROFILE)
+    profile_digest = byte_hash(json.dumps(profile_spec, sort_keys=True).encode())
     effective["renderer_profile_sha256"] = profile_digest
     key = f"{job['clip_id']}:{start}:{effective['end_demo_tick']}:{profile_digest}"
     effective["clip_id"] = hashlib.sha256(key.encode()).hexdigest()[:24]
     if effective["end_demo_tick"] != end:
         effective["source_job_command_coverage"] = effective.pop("command_coverage", None)
         effective["source_job_interval"] = [start, end]
-    effective["renderer_profile"] = PROFILE
+    effective["renderer_profile"] = profile_spec["profile"]
     return effective
 
 
@@ -380,6 +411,10 @@ def launch_arguments(game: Path, job: dict[str, Any], demo: Path, log: Path,
         if job["calibration_replay_profile"] != "cs2-controlled-calibration-replay-v1":
             raise ValueError("Unsupported controlled calibration replay profile")
         arguments.append("-chicken-calibration-replay")
+    if "competitive_replay_profile" in job:
+        if job["competitive_replay_profile"] != COMPETITIVE_PROFILE or "calibration_replay_profile" in job:
+            raise ValueError("Unsupported or conflicting competitive replay profile")
+        arguments.append("-chicken-competitive-replay")
     return arguments + ["+playdemo", str(demo)]
 
 
@@ -515,21 +550,32 @@ def wait_for_game(process: subprocess.Popen[bytes], roots: list[Path], job: dict
     started = time.monotonic()
     last_notice = started
     nominal_frames = math.ceil((job["end_demo_tick"] - job["start_demo_tick"]) * job["fps"] / 64)
-    byte_limit = min(1024**3, (nominal_frames + 8) * (job["width"] * job["height"] * 4 + 2048))
+    # BGRA originals at720p exceed1 GiB after roughly291 frames. The current
+    # bounded profile can produce1280 frames at64 fps; legacy limits stay1 GiB.
+    absolute_limit = 5*1024**3 if job.get("competitive_replay_profile") == COMPETITIVE_PROFILE else 1024**3
+    byte_limit = min(absolute_limit, (nominal_frames + 8) * (job["width"] * job["height"] * 4 + 2048))
+
+    def check_capture_budget() -> tuple[int, int]:
+        files = capture_files(roots, job["clip_id"])
+        size = sum(path.stat().st_size for path in files)
+        if len(files) > nominal_frames + 8 or size > byte_limit:
+            stop_owned_process(process)
+            raise RuntimeError("Capture exceeded its bounded frame/disk budget; possible repeated movie sequence")
+        return len(files), size
+
     while process.poll() is None:
         elapsed = time.monotonic() - started
         if elapsed > timeout:
             stop_owned_process(process)
             raise TimeoutError(f"Owned CS2 process did not finish within {timeout:g} seconds")
-        files = capture_files(roots, job["clip_id"])
-        size = sum(path.stat().st_size for path in files)
-        if len(files) > nominal_frames + 8 or size > byte_limit:
-            stop_owned_process(process)
-            raise RuntimeError("Capture exceeded its bounded pilot frame/disk budget; possible repeated movie sequence")
+        frame_count, size = check_capture_budget()
         if time.monotonic() - last_notice >= 15:
-            print(f"Replay running: {elapsed:.0f}s elapsed, {len(files)} captured files, {size / 1024**2:.1f} MiB", flush=True)
+            print(f"Replay running: {elapsed:.0f}s elapsed, {frame_count} captured files, {size / 1024**2:.1f} MiB", flush=True)
             last_notice = time.monotonic()
         time.sleep(0.5)
+    # CS2 can finish writing and exit between polls, including before the first
+    # poll. Validate its final files before the caller archives or encodes them.
+    check_capture_budget()
     return process.returncode
 
 
@@ -610,13 +656,15 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
     # A fresh capture prefix disambiguates repeat attempts, including engines that
     # write into the shared csgo/movie fallback rather than the temporary mod.
     capture_job = {**job, "clip_id": job["clip_id"] + "-" + run_id[:12]}
-    lease = GameInfoLease(game, out, run_id)
+    lease = GameInfoLease(game, out, run_id,
+        hud_archive_profile=HUD_ARCHIVE_SEARCH_PROFILE if "competitive_replay_profile" in job else None)
     movie_roots = [lease.mod_dir / "movie", game / "csgo/movie"]
     manifest_path = out / (job["clip_id"] + ".render.json")
     report: dict[str, Any] = {
         "schema_version": 1, **{key: job[key] for key in ("clip_id", "demo_id", "round_id", "steam_id", "player_slot", "fps", "width", "height")},
         "requested_start_demo_tick": job["start_demo_tick"], "requested_end_demo_tick": job["end_demo_tick"],
-        "renderer_profile": PROFILE, "capture_method": "native-windows-cs2-startmovie-tga",
+        "renderer_profile": COMPETITIVE_RENDERER_PROFILE if "competitive_replay_profile" in job else PROFILE,
+        "capture_method": "native-windows-cs2-startmovie-tga",
         "renderer_profile_sha256": job["renderer_profile_sha256"],
         "hud_profile": {"requested_commands": HUD_COMMANDS, "visual_acceptance_verified": False,
                         "observer_settle_ticks": min(128, job["start_demo_tick"] - 71),
@@ -644,6 +692,11 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         report["plugin_sha256"] = sha256_file(plugin)
         report["plugin_source_sha256"] = report["plugin_sha256"]
         require_isolation_plugin(plugin)
+        if "competitive_replay_profile" in job:
+            import calibration_windows
+            report["binary_profile"] = calibration_windows.verify_binary_profile(game)
+            if COMPETITIVE_PROFILE.encode() not in plugin.read_bytes():
+                raise ValueError("Competitive replay requires the separately identified current-build plugin")
         roots = discover_settings_roots(game, args.steam_dir, args.steam_user_id)
         settings = settings_guard.SettingsLease(out, run_id, roots,
             selectors={name: SETTINGS_SELECTORS[name] for name in roots},
@@ -673,9 +726,14 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
         if report["plugin_staged_sha256"] != report["plugin_source_sha256"]:
             raise ValueError("Plugin changed during staging; refusing to launch with inconsistent DLL provenance")
         (lease.mod_dir / "movie").mkdir()
+        if "competitive_replay_profile" in job:
+            report["hud_override"] = hud_override.stage_hud_override(game, lease.mod_dir)
         if capture_files(movie_roots, capture_job["clip_id"]):
             raise ValueError("Capture prefix already exists; refusing to mix frames from separate attempts")
         settings.verify_unchanged()
+        if "competitive_replay_profile" in job:
+            if calibration_windows.verify_binary_profile(game) != report["binary_profile"]:
+                raise ValueError("Competitive replay binaries changed during setup")
         require_cs2_idle()
         lease.activate()
         if cs2_pids():
@@ -697,7 +755,7 @@ def run_capture(args: argparse.Namespace, job: dict[str, Any], original_job: dic
             code = wait_for_game(process, movie_roots, capture_job, args.timeout)
         report["cs2_exit_code"] = code
         if code:
-            raise RuntimeError(f"Owned CS2 process exited with code {code}; plugin ABI/build may be incompatible")
+            raise RuntimeError(f"Owned CS2 process exited with code {code}; inspect this run's process and native logs for the startup or capture error")
     except BaseException as exc:
         failure = exc
         report["error"] = str(exc)
@@ -801,7 +859,8 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ffmpeg", default=local_video_tool("ffmpeg"))
     parser.add_argument("--ffprobe", default=local_video_tool("ffprobe"))
     parser.add_argument("--allow-version-mismatch", action="store_true", help="Attempt the experimental plugin against a different game patch")
-    parser.add_argument("--max-ticks", type=int, default=MAX_PILOT_TICKS, help="Pilot capture cap, 4..320 demo ticks; truncation gets a distinct clip ID")
+    parser.add_argument("--max-ticks", type=int, default=MAX_PILOT_TICKS,
+                        help="Capture cap: default320, maximum1280 for the explicit current competitive profile, otherwise320; truncation gets a distinct clip ID")
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--timeout", type=float, default=300.0, help="Owned game process timeout in seconds")
     parser.add_argument("--encoder", choices=("libx264", "h264_nvenc"), default="libx264")

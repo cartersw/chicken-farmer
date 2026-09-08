@@ -16,6 +16,7 @@ from .clock_evidence import NetworkClockEvidence, command_envelope_matches, load
 from .io import exclusive_output, parsed_manifest, publish, read_json, sha256_file, staging_paths, write_json
 from .timing import read_ledger, verify_capture_evidence
 from .validation import pov_status
+from .native_replay_profile import LEGACY_PROFILE, get_native_replay_profile, header_matches_profile
 
 ENGINE_SHA = "26dc9c5fee70312e7851d87c2383f70cc4d036247d8de04e3cf342ccc20773ac"
 CLIENT_SHA = "b8e2c009763e8cefb88d89a2bdcf452db17501553d473db6da060df8e6769eb4"
@@ -63,7 +64,8 @@ def _source_indices(evidence):
     return result
 
 
-def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockEvidence) -> dict[str, Any]:
+def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockEvidence, *,
+                          native_profile=LEGACY_PROFILE) -> dict[str, Any]:
     """Check paired hooks and reproduce counters/maxima before each observation.
 
     The process-lifetime maximum deliberately survives seeks. Per-generation
@@ -71,19 +73,24 @@ def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockE
     bound. Raw source records are matched by explicit payload clocks, never by a
     fitted native playback offset. Source windows need only cover the capture.
     """
+    profile = get_native_replay_profile(native_profile)
     if not isinstance(records, list) or len(records) > 1000000 or any(not isinstance(row, dict) for row in records):
         raise ValueError("Native clock audit exceeds bounded record count")
     header = records[0] if records else {}
     contract = header.get("native_clock", {})
     available = (isinstance(contract, dict) and type(contract.get("schema_version")) is int and contract["schema_version"] == 1
                  and header.get("event") == "header" and _same(header.get("schema_version"), 1)
-                 and header.get("engine_sha256") == ENGINE_SHA
-                 and isinstance(header.get("native_observation"), dict)
-                 and header["native_observation"].get("client_sha256") == CLIENT_SHA
+                 and header_matches_profile(header, native_profile=native_profile)
+                 and (native_profile == LEGACY_PROFILE or contract.get("engine_sha256") == profile["engine_sha256"])
                  and contract.get("scope") == "delivered_net_tick_packet_entities_and_user_command_envelopes"
                  and all(_same(contract.get(key), value) for key, value in
                          (("net_tick_slot", 88), ("packet_entities_dispatch_slot", 111),
                           ("packet_entities_apply_slot", 129), ("user_commands_slot", 128))))
+    if native_profile != LEGACY_PROFILE:
+        available = available and all(_same(contract.get(key), value) for key, value in (
+            ("status", "prepared"), ("client_vtable_rva", "0x5335d8"),
+            ("client_server_tick_offset", 892), ("net_tick_field_offset", 80),
+            ("packet_entities_tick_field_offset", 192)))
     if not available:
         return {"status": "unavailable", "reason_codes": ["unsupported_or_missing_native_clock_contract"],
                 "frames": [], "training_ready": False}
@@ -268,7 +275,9 @@ def audit_native_messages(records: list[dict[str, Any]], evidence: NetworkClockE
             "frames": observations, "training_ready": False}
 
 
-def recompute_synchronization(parsed: Path, dataset: Path, network_clock: Path) -> dict[str, Any]:
+def recompute_synchronization(parsed: Path, dataset: Path, network_clock: Path, *,
+                              native_profile=LEGACY_PROFILE) -> dict[str, Any]:
+    get_native_replay_profile(native_profile)
     canonical = parsed_manifest(parsed, ["usercmd.parquet"])
     clip_path, frame_path = dataset / "timing/clip.json", dataset / "timing/frames.jsonl"
     clip, frames = read_json(clip_path), read_ledger(frame_path)
@@ -287,7 +296,7 @@ def recompute_synchronization(parsed: Path, dataset: Path, network_clock: Path) 
                  & (ds.field("player_slot") == clip["player_slot"]) & (ds.field("demo_tick") >= start) & (ds.field("demo_tick") < end))
     commands = ds.dataset(parsed / "usercmd.parquet").to_table(filter=condition).to_pylist()
     associations = command_envelope_matches(commands, evidence)
-    native = audit_native_messages(records, evidence)
+    native = audit_native_messages(records, evidence, native_profile=native_profile)
     readbacks = {row.get("submission_candidate", {}).get("capture_index"): row for row in records if row.get("event") == "pixel_readback"}
     pov = []
     for row in records:
@@ -298,6 +307,7 @@ def recompute_synchronization(parsed: Path, dataset: Path, network_clock: Path) 
     offsets = Counter(row["network_tick"] - row["demo_tick"] for row in evidence.records
                       if row["message_type"] == "CNETMsg_Tick" and row.get("network_tick") is not None)
     return {"schema_version": 1, "producer": "cs2-synchronization-audit-v1", "status": "complete",
+            **({"native_profile": native_profile} if native_profile != LEGACY_PROFILE else {}),
             "demo_id": canonical["demo_id"], "clip_id": clip["clip_id"], "training_ready": False,
             "observation_bound_verified": False, "command_support_verified": False,
             "reason_codes": LIMITS, "num_frames": len(frames),
@@ -312,11 +322,12 @@ def recompute_synchronization(parsed: Path, dataset: Path, network_clock: Path) 
 
 
 @exclusive_output()
-def audit_synchronization(parsed: Path, dataset: Path, network_clock: Path, out: Path) -> dict[str, Any]:
+def audit_synchronization(parsed: Path, dataset: Path, network_clock: Path, out: Path, *,
+                          native_profile=LEGACY_PROFILE) -> dict[str, Any]:
     destination = out / "synchronization_audit.json"
     staged = staging_paths([destination])
     try:
-        report = recompute_synchronization(parsed, dataset, network_clock)
+        report = recompute_synchronization(parsed, dataset, network_clock, native_profile=native_profile)
         write_json(staged[0], report)
         publish(staged, [destination])
     finally:
@@ -331,7 +342,8 @@ def audit_synchronization(parsed: Path, dataset: Path, network_clock: Path, out:
 def load_synchronization(path: Path) -> dict[str, Any]:
     report = read_json(path)
     inputs = report.get("inputs", {})
-    expected = recompute_synchronization(*(Path(inputs[name]) for name in ("parsed", "dataset", "network_clock")))
+    selection = {"native_profile": report["native_profile"]} if "native_profile" in report else {}
+    expected = recompute_synchronization(*(Path(inputs[name]) for name in ("parsed", "dataset", "network_clock")), **selection)
     # JSON output cannot carry NaNs; type-sensitive encoding rejects bool/int edits.
     import json
     if json.dumps(report, sort_keys=True, allow_nan=False) != json.dumps(expected, sort_keys=True, allow_nan=False):

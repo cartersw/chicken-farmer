@@ -21,6 +21,7 @@ json isolationReport;
 bool installed = false;
 bool ready = false;
 uint64_t frameChecks = 0;
+bool resourcePathsObserved = false;
 
 template<class T> T SafeRead(const void* address) {
     T value{};
@@ -202,6 +203,43 @@ void BeforeCommands() {
         ready = true;
         Trace("Settings isolation ready; config reads/writes use %s", settingsRoot.u8string().c_str());
     }
+}
+
+void ObserveCompetitiveResourcePaths() {
+    if (resourcePathsObserved || !ChickenCapture::CompetitiveProfile() || !ChickenCapture::ledger) return;
+    resourcePathsObserved = true;
+    VerifyPaths();
+    const auto base = reinterpret_cast<BYTE*>(GetModuleHandleW(L"filesystem_stdio.dll"));
+    const auto table = SafeRead<void**>(guardedFileSystem);
+    // The pinned SDK places RelativePathToFullPath immediately before the two
+    // independently checked path-query methods. Only query; never change paths.
+    if (SafeRead<void*>(table + 41) != base + 0x5d2d0)
+        PluginError("HUD resource diagnostic: unsupported path resolution method");
+    const char* resource = "panorama/styles/hud/hudhealthammocenter.vcss_c";
+    json evidence = {{"event", "competitive_resource_paths"}, {"resource", resource},
+        {"scope", "filesystem_selection_diagnostic_not_panorama_consumption_proof"},
+        {"resource_load_verified", false}, {"paths", json::array()}};
+    for (const char* id : {"GAME", "MOD"}) {
+        CBufferStringN<32768> search, resolved;
+        const bool hasSearch = guardedFileSystem->GetSearchPath(id, GET_SEARCH_PATH_ALL, search, 64);
+        const auto selected = guardedFileSystem->RelativePathToFullPath(resource, id, resolved);
+        json row = {{"path_id", id}, {"search_available", hasSearch},
+            {"search_path", search.Get()}, {"resolved", selected ? json(resolved.Get()) : json(nullptr)}};
+        if (selected) {
+            const auto filePath = std::filesystem::u8path(resolved.Get());
+            std::error_code error;
+            if (std::filesystem::is_regular_file(filePath, error) && !error &&
+                std::filesystem::file_size(filePath, error) <= 1048576 && !error) {
+                std::ifstream file(filePath, std::ios::binary);
+                std::vector<BYTE> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                if (!file.bad() && !bytes.empty())
+                    row["resolved_loose_file_sha256"] = ChickenCapture::Sha256(bytes.data(), bytes.size());
+            }
+        }
+        evidence["paths"].push_back(std::move(row));
+    }
+    ChickenCapture::Write(evidence);
+    Trace("Competitive HUD resource paths: %s", evidence.dump().c_str());
 }
 
 void ObserveShutdown() {

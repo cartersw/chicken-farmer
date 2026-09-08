@@ -2,10 +2,22 @@
 
 Use the native Steam/CS2 installation with the experimental worker in
 `tools/renderer/windows.py`. Linux and WSL are not needed for this route.
-The current pilot is a short Dust2 player POV clip with separately verified
-frame and future-command timing.
+The current build route is an explicit competitive replay profile for CS2
+1.41.8.0, with separate source-command, frame-bound and HUD verification.
+See [competitive acceptance](COMPETITIVE_ACCEPTANCE.md),
+[the tensor loader](TRAINING_DATASET.md),
+[resumable batches](COMPETITIVE_BATCH.md), and
+[the current expansion milestone](progress/COMPETITIVE_EXPANSION.md)
+for current results and pending checks.
 
-**Local result:** native capture succeeds on CS2 1.41.7.8 at 1280x720/32 fps.
+[Action-aware collection](COMPETITIVE_COLLECTION.md) now prepares competitive
+clips and their clock evidence automatically. The standalone worker still
+defaults to five seconds; the explicit current competitive profile permits
+`--max-ticks` up to 1280 (20 seconds). Longer captures retain the same settings,
+frame-count and source checks, with a BGRA disk budget sized for the bounded
+duration. Historical profiles remain capped at 320 ticks.
+
+**Historical local result:** native capture succeeded on CS2 1.41.7.8 at 1280x720/32 fps.
 Protected clock trial `windows-timing-016` produced 160 images, verified packet
 information bounds and **129 accepted training samples**, with 31 rejected.
 All 39 selected personal settings files were preserved and the staged plugin
@@ -18,11 +30,11 @@ files unchanged. Earlier captures used the previous build, which restored
 The user subsequently reported Steam **Offline Mode**. Online Steam Cloud and
 reconnection behavior have not been validated; the worker did not measure Steam's
 network mode during this trial.
-The competitive pilot now uses Ckanic's first scored Dust2 round, including a
+The competitive pilot uses Ckanic's first scored Dust2 round, including a
 Glock shot and aim turn. The planner excludes the earlier knife/setup phase.
 Native HUD controls remove spectator statistics and chat while preserving player
 signals. Capture instrumentation records actual movie counters, pixel hashes and
-render clocks. The latest video is
+render clocks. The historical trial-016 video is
 `data/rendered/windows-timing-016/dd3ea5022ae36523398b97ca.mp4`;
 `data/datasets/dust2-timing-016/` contains diagnostic alignment and
 `viewer/inspect.html`. Accepted targets are a separate partition under
@@ -67,31 +79,45 @@ plugin into CS2. Source adaptations are maintained in
 [plugin-windows](../tools/renderer/plugin-windows/README.md); original upstream
 files remain intact. Initial configuration downloads the pinned SDK and JSON dependency.
 
-The installed CS2 patch is `1.41.7.8`; upstream targets `1.41.6.5`.
+The installed CS2 patch is `1.41.8.0`; upstream targets `1.41.6.5`.
 `--allow-version-mismatch` explicitly permits an experimental attempt. It does
-not certify the hardcoded game interfaces. A recent
+not bypass binary verification or select a native profile. The current route
+requires the job field `competitive_replay_profile` shown below, while jobs
+without it retain the historical 14178 profile. A historical
 [upstream issue](https://github.com/akiver/cs-demo-manager/issues/1458) reports a
 demo-start callback regression in 1.41.7.6. The Windows adaptation includes a
 bounded fallback for installing the frame hook; its logs distinguish plugin
 loading from frame-hook initialization. The local successful trials also needed
 the documented ICvar and replay-command interface corrections; their primary
 source revisions are linked in the plugin notes. This establishes a working
-short-capture path on this build, not compatibility with future CS2 updates.
+short-capture path on the inspected builds, not compatibility with future CS2 updates.
 
 ## Short pilot
 
-Keep Steam running and close CS2 before starting. Use the covered competitive job:
-`data/jobs/dust2-competitive-shot-001.json` (Ckanic, slot 9, canonical round 3,
+Keep Steam running and close CS2 before starting. Use the current competitive job:
+`data/jobs/dust2-competitive-current-001.json` (Ckanic, slot 9, canonical round 3,
 ticks `[6000,6320)`). It has 320 recorded commands and one Glock shot at tick 6102.
 The earlier `dust2-audited-first.json` is a knife/setup diagnostic, and
 `dust2-first.json` also lacks command coverage. Neither is a competitive sample.
+
+The complete current job includes:
+
+```json
+{"competitive_replay_profile": "cs2-14180-competitive-replay-v1"}
+```
+
+The worker converts that field to `-chicken-competitive-replay` and verifies all
+eight current binary hashes before launch. It cannot be combined with the
+controlled-calibration replay profile. Matching current binaries alone do not
+make local calibration evidence a competitive capture. The historical
+`dust2-competitive-shot-001.json` job remains unchanged.
 
 New jobs require a hash-bound match-phase sidecar by default. See
 [phase extraction and job generation](PHASES.md). An explicit
 `--allow-unverified-phase` allows setup/unknown jobs for diagnosis only.
 
 ```powershell
-.\.venv\Scripts\python.exe tools/renderer/windows.py --spec data/jobs/dust2-competitive-shot-001.json --output data/rendered/windows-pilot --allow-version-mismatch
+.\.venv\Scripts\python.exe tools/renderer/windows.py --spec data/jobs/dust2-competitive-current-001.json --output data/rendered/windows-pilot-NEW --allow-version-mismatch
 ```
 
 This is a dry run. Review the selected interval and launch command. Add
@@ -115,6 +141,35 @@ requires the native settings guard, and restores verified settings after the
 owned CS2 process exits. This protection passed the bounded live trial described
 below. Do not copy the proxy DLL over CS2's real server DLL or use the Linux
 install script.
+
+### Private HUD assets
+
+The current competitive route stages its spectator-HUD override only inside
+`game/csgo/chicken-render-<run-id>/`. The private-archive candidate contains the
+modified stylesheet at `panorama/styles/hud/hudhealthammocenter.vcss_c` and a
+small `pakchicken_hud_dir.vpk` index and `pakchicken_hud_000.vpk` containing that
+resource. This archive pair belongs to the
+temporary mod; the installed `game/csgo/pak01_dir.vpk` and original game assets
+are read as source evidence and are never overwritten.
+The journaled gameinfo lease mounts the archive in `Game` and `Mod` using its
+logical `pakchicken_hud.vpk` name; its physical files retain the `_dir.vpk` and
+`_000.vpk` suffixes.
+
+The existing cleanup moves the entire owned mod, including its HUD assets,
+into `<run>/renderer-sandbox/` after restoring gameinfo. Native TGA frames remain
+unchanged; this is a renderer resource change, not a black rectangle applied
+to saved images or a change to personal HUD preferences.
+
+Correctly staged resource bytes do not prove that the engine loaded the override
+or that the resulting HUD is suitable. The first current replay's loose-file
+override failed visual inspection. Both private `pak01` archive candidates
+failed the engine's reserved-name identity check; the current candidate uses
+the distinct `pakchicken_hud` name. Trial006 loaded that override, and all 160
+frames passed the recorded visual review. The fixed review covers that exact
+capture; later clips still require their own HUD evidence.
+See [HUD_PROFILE.md](HUD_PROFILE.md) and
+[the competitive pilot milestone](progress/COMPETITIVE_TRAINING_PILOT.md) for the
+current result; a failed visual attempt does not become accepted training data.
 
 ## Keeping normal play separate
 
@@ -232,8 +287,9 @@ worker cannot execute its normal cleanup code.
 
 Successful capture must contain decodable video, frame provenance, actual video
 PTS and logs. Check the requested player, HUD/viewmodel, resolution, colors and
-interval visually. Raw TGA decoding uses FFmpeg's image decoder, so Windows TGA
-channel order and image origin are handled without guessing raw pixel layout.
+interval visually. Video encoding and probing use FFmpeg. Native pixel checks
+and training tensors use the standard-library TGA decoder, which preserves RGB
+channel order and image origin from the verified file bytes.
 
 Raw TGAs remain unchanged. `capture_frame_files.json` records each original
 native filename, archived filename and SHA256. The capture ledger adds movie
@@ -299,10 +355,52 @@ These diagnostic outputs remain `training_ready=false`. Measured image identity 
 prove the command/render clock epoch, fractional action timing or every player's
 POV. The real inspector makes those assumptions visible for review.
 
-Use [the separate causal acceptance command](SYNCHRONIZATION.md#accept-and-load-the-first-training-subset)
-after capture processing to publish samples supported by complete packet bounds
-and the scoped server-command profile. Only its accepted sample records are
-approved for that feature/target contract.
+For historical 14178 captures, [the separate causal acceptance command](SYNCHRONIZATION.md#accept-and-load-the-first-training-subset)
+publishes samples under its original single-command contract. It remains separate
+from the current competitive two-command profile below.
+
+### Current competitive acceptance and first batch
+
+After preparing a current competitive capture with `process-render`, explicitly
+select its profile when auditing synchronization:
+
+```powershell
+.venv/Scripts/python.exe -m cs2_data audit-synchronization `
+  --parsed data/parsed/PARSED-DEMO --dataset data/datasets/NEW-CLIP `
+  --network-clock data/clocks/SOURCE-CLOCK.json `
+  --native-profile cs2-14180-competitive-replay-v1 `
+  --out data/validation/NEW-SYNCHRONIZATION
+```
+
+Publish the separately verified competitive partition, then materialize a small
+image-only batch:
+
+```powershell
+.venv/Scripts/python.exe -m cs2_data accept-competitive-controls `
+  --parsed data/parsed/PARSED-DEMO --dataset data/datasets/NEW-CLIP `
+  --network-clock data/clocks/SOURCE-CLOCK.json `
+  --state-context data/context/SOURCE-CONTEXT.json `
+  --out data/acceptance/NEW-COMPETITIVE-PARTITION
+
+.venv/Scripts/python.exe -m cs2_data.training_dataset `
+  --acceptance data/acceptance/NEW-COMPETITIVE-PARTITION `
+  --series-groups data/training/esl-misa-mouz-series-v1.json `
+  --output data/training/first-competitive-batch-NEW `
+  --batch-size 2 --height 180 --width 320
+```
+
+Replace the source paths with their actual hash-bound artifacts and use fresh
+outputs. Keep FFmpeg on PATH for revalidation. Opening the partition recomputes
+its proof; the tensor loader independently checks the eight-image history and
+future supports before producing `batch.pt` and `batch_report.json`.
+
+Only fields with true masks are usable targets. Unknown competitive button
+semantics stay masked, and raw commands or private game state are not model
+observations. The whole supplied BO3 stays in one split, so independent series
+are still needed for validation and test data. See
+[COMPETITIVE_ACCEPTANCE.md](COMPETITIVE_ACCEPTANCE.md) for source evidence and
+[TRAINING_DATASET.md](TRAINING_DATASET.md) for tensor shapes, masks and dependency
+details. Materializing a batch does not run model training.
 
 The latest actual build/run outcome is recorded in
 [the progress tracker](progress/STATUS.md). A dry run or successful plugin build

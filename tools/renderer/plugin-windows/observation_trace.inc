@@ -4,7 +4,7 @@
 namespace Observation {
 constexpr const char* ClientSha = "b8e2c009763e8cefb88d89a2bdcf452db17501553d473db6da060df8e6769eb4";
 const char* ExpectedClientSha() {
-    return CalibrationProfile() ? "809b62b2397e7849995ea427ed99fe2270d2f8ceae731e5ffa43c271e132f3ae" : ClientSha;
+    return CurrentBuildProfile() ? "809b62b2397e7849995ea427ed99fe2270d2f8ceae731e5ffa43c271e132f3ae" : ClientSha;
 }
 constexpr const char* SchemaSha = "e3cff9d0dd23639da5a4e4b0267c6cd64f44598d8a2fb087b02f14a5af028512";
 BYTE* clientBase = nullptr;

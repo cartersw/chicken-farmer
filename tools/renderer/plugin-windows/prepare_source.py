@@ -67,6 +67,7 @@ def adapt_source(source: str) -> str:
     replace('    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).',
             '    ChickenSettings::BeforeCommands();\n'
             '    ChickenCapture::Initialize();\n\n'
+            '    ChickenSettings::ObserveCompetitiveResourcePaths();\n\n'
             '    ChickenCapture::ClockTrace::BeforeCommands();\n\n'
             '    ChickenCalibration::BeforeCommands();\n\n'
             '    // Drain commands queued from other contexts (e.g. setup commands from ClientFullyConnect).')

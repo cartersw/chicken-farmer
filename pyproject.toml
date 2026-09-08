@@ -11,6 +11,7 @@ dependencies = ["pyarrow==21.0.0"]
 
 [project.optional-dependencies]
 dev = ["pytest==8.4.2"]
+training = ["torch==2.8.0"]
 
 [project.scripts]
 cs2-data = "cs2_data.cli:main"

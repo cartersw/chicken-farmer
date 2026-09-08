@@ -2,6 +2,93 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-08 - Action coverage and collection throughput
+
+Implemented balanced competitive action discovery, automatic selected clock
+preparation and longer protected clips. Four ten-second captures produced 1,280
+reviewed images and 1,236 accepted samples. Refreshing the earlier three clips
+gives **1,692 accepted/68 rejected**, with positive reload/control fields.
+The eight histories spanning one ambiguous Nuke checkpoint remain rejected.
+
+Repeated late packet scans measured 63.351 to 5.302 seconds with identical output;
+one-pass HUD sheets measured 5.508 to 2.852 seconds with identical PNGs. Four
+ten-second clips need four launches instead of eight. Added bounded compressed
+cache corruption checks and final-after-exit capture budget enforcement.
+
+The real four-sample RGB batch `[4,8,3,180,320]` saves/reloads exactly, with
+8 valid angular and 320 valid button fields (24 positives).
+**2,030 tests passed in 90.37 seconds.** Settings, installed game/HUD bytes and
+staging cleanup checks pass. All samples stay in one BO3; no training or Cloud
+work ran. See [the milestone and artifacts](ACTION_COVERAGE_AND_THROUGHPUT.md).
+
+## 2026-09-08 - Competitive button proof and repeatable two-map batch
+
+Completed the approved original-source button investigation and expansion
+beyond the fixed Dust2 pilot. Original 14178 native enums, transition table and
+protobuf conversions support held/net/activity targets with per-field, exact
+command-row proofs. Missing fields and exact event counts/order/timing remain
+masked. Full original-demo reconstruction reproduces all four Dust2/Nuke
+tables byte-for-byte and independently checks phase/context sidecars. Nuke
+state was regenerated with extractor 0.1.2.
+
+Added bounded resumable planning/running across maps, rounds and players,
+current-profile packet scanning beyond tick 20,000, and contact sheets covering
+every original frame. Actual protected captures produced 160 Dust2 round-5
+frames and 160 Nuke round-3 frames; all were visually reviewed. An initial Nuke
+zero-acceptance result exposed a 1,024-second absolute clock cap. The corrected
+check retains finite, increasing timestamps and exact measured 32 Hz cadence.
+The runner issued fresh proofs using the existing captures and retained the
+rejected attempt.
+
+The two new clips accept 150 and 153 samples. Reissuing the original clean
+pilot under v2 adds 153, for **456 accepted / 24 rejected**, 912 available
+angular fields and 31,616 available button fields. A real three-sample CPU
+batch saved and reloaded exactly: RGB `[3,8,3,180,320]`, six valid angular fields,
+184 valid button fields and 19 positive valid button fields. All samples stay
+in the same BO3 training group; validation/test remain empty.
+
+Both sessions restored all 39 selected personal files, GameInfo and renderer
+staging. Final direct checks confirm installed game/HUD hashes unchanged and
+CS2 closed. Steam mode and Cloud preferences were unchanged. **1,889 Python
+tests passed in 66.77 seconds**; no native code changed in this milestone and
+no model training ran. See [results, artifacts and remaining work](COMPETITIVE_EXPANSION.md).
+
+## 2026-09-08 - Current competitive replay and verified tensor pilot
+
+Delivered the approved current-build replay proof, spectator HUD cleanup and
+competitive training interface. Trial 006 has 160 reviewed original images
+and 153 accepted eight-image histories with two future recorded command
+boundaries per 32 Hz target. Seven initial histories reject; one also retains
+its negative raw fraction. Competitive buttons and exact event timing remain
+masked. The first complete real CPU batch is saved and independently reloaded
+from `data/training/first-competitive-batch-002/`; its RGB shape is
+`[2,8,3,180,320]`, with four valid angular fields and no valid button fields.
+All three supplied BO3 maps remain in the same training split (153/0/0 samples).
+
+Recovered the exact originally inspected 14178 server/client/engine binaries
+into the workspace, without changing installed game files or historical
+acceptance. The new current native profile separately checks eight 14180
+binaries and exact source packet bytes. Fresh command reconstruction and
+independently pinned audited Dust2 eligibility facts prevent rehashed labels
+or metadata from granting acceptance. The visual review is bound to these
+exact 160 pilot images; general corpus automation remains unfinished.
+
+HUD cleanup uses a private stylesheet and custom VPK pair, explicitly mounted
+under a journaled Game/Mod policy. Retained failures establish stock resource
+precedence, the reserved `pak01` identity rejection, and Source2's base-name
+chunk lookup. No installed archive, manifest or signature check was modified.
+All six attempts preserved the 39 selected personal files, restored gameinfo
+and archived staging out of CS2. Final direct hashes confirm normal binaries,
+HUD assets and settings are unchanged; CS2 is closed. Steam mode/Cloud
+preferences were unchanged.
+
+The first tensor artifact remains as a diagnostic after a one-ULP resize
+overshoot was found. A saturated-image regression and explicit normalized
+range clamp fix it in batch 002. Verification: **1,698 Python tests passed in
+55.53 seconds**, native Release build passed, and the real batch's hashes,
+shapes, masks and source indices passed independent reload. No model training
+was performed. See [full evidence and remaining limits](COMPETITIVE_TRAINING_PILOT.md).
+
 ## 2026-09-08 - 32 Hz execution and source-checked partial labels
 
 Implemented the approved executor and label builder. The executor uses an

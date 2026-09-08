@@ -1,6 +1,75 @@
 # Current implementation status
 
-**Latest work (2026-09-08): 32 Hz executor and scoped label builder implemented.**
+**Latest work (2026-09-08): action coverage and collection throughput.**
+Four protected ten-second captures produced 1,280 reviewed frames and 1,236
+accepted samples. The refreshed seven-clip corpus has **1,692 accepted /
+68 rejected**, with 3,384 valid angular fields and 125,240 valid button
+fields. Positive reload, attack, movement and crouch labels are present; rapid
+jump activity retains its uncertainty. All samples remain in one BO3 training
+group, with no validation/test series and no model training.
+
+Collection now balances action examples with ordinary play, prepares selected
+clock windows and preserves resumable stages. Four ten-second clips require
+four launches instead of eight five-second launches. HUD sheet preparation
+measured 1.93x faster; repeated late source scans measured 11.95x faster with
+identical output. Exact source/settings/visual checks remain required.
+
+The four-sample RGB batch `[4,8,3,180,320]` saves and reloads exactly, including
+valid positive reload and attack fields. **2,030 tests pass.** Direct checks
+confirm settings, installed game/HUD bytes and staging cleanup. One Nuke
+checkpoint frame retains its ambiguity and eight affected histories reject.
+See [the completed milestone](ACTION_COVERAGE_AND_THROUGHPUT.md),
+[collection commands](../COMPETITIVE_COLLECTION.md) and
+[remaining work](NEXT_STEPS.md).
+
+**Previous milestone: competitive buttons and resumable batch processing.**
+The original 14178 button audit supports held/net/activity fields with exact
+per-command proofs. Full original-demo reconstruction replaces the fixed Dust2
+eligibility pins and reproduces all four Dust2/Nuke tables byte-for-byte, plus
+phase/context evidence. The batch runner plans multiple rounds/players/maps,
+preserves completed stages and pauses for source-bound visual review.
+Two new protected captures produced 320 reviewed frames; settings and installed
+game/HUD hashes are unchanged. Together with the reverified original pilot,
+that milestone produced **456 accepted samples and 24 rejected candidates**.
+The real three-sample tensor batch passes exact reload with six valid angular
+fields and 184 valid button fields, including 19 positive button fields.
+The final suite passes **1,889 tests**.
+See [the expansion milestone](COMPETITIVE_EXPANSION.md) for accepted counts,
+the retained Nuke absolute-clock rejection and its fix, and tensor results.
+Exact event timing, weapon-selection controls, broader corpus coverage and
+independent validation/test series remain unfinished. No model has been trained.
+
+**Previous work: current competitive replay and masked acceptance verified.**
+Trial `windows-competitive-current-006` produced 160 original images with the
+spectator strip removed and player HUD preserved. All 160 image, native clock,
+POV and packet-bound checks pass. That pilot profile accepted **153 eight-image
+samples** with two future recorded command boundaries per 32 Hz angular target.
+Seven candidates lack complete history; one also retains an unsupported raw
+fraction rejection. In that publication, competitive button fields and exact event times stayed masked.
+See [the milestone and artifacts](COMPETITIVE_TRAINING_PILOT.md),
+[acceptance contract](../COMPETITIVE_ACCEPTANCE.md) and
+[tensor loader](../TRAINING_DATASET.md).
+The real CPU batch is saved at `data/training/first-competitive-batch-002/` and
+passes independent reload: RGB shape `[2,8,3,180,320]`, four valid angular
+fields, no valid competitive button fields, and an exact normalized pixel
+range within `[0,1]`. Whole-series splits are 153 train, 0 validation, 0 test.
+
+The exact original 14178 server/client/engine binaries were recovered into the
+workspace and match their previously recorded hashes. Current renderer support
+is checked separately against eight 14180 binaries. Fresh prefix reconstruction
+and pinned, previously audited Dust2 eligibility metadata close the pilot's
+source boundary. That acceptance was restricted to the reviewed source/capture;
+full-match automation and competitive button semantics were unfinished at that milestone.
+
+Five earlier attempts are retained, including two rendered HUD failures and
+three archive/mount startup failures. All six attempts preserved the 39 selected
+personal files, restored gameinfo and removed staging. Final direct checks also
+confirm the installed binaries/HUD bytes are unchanged, CS2 is closed and no
+renderer folders remain in the game. Steam mode/Cloud preferences were unchanged.
+Verification: **1,698 Python tests passed in 55.53 seconds** and native Release
+build passed. No model has been trained.
+
+**Previous milestone: 32 Hz executor and scoped label builder implemented.**
 The executor carries fractional mouse counts, retains held keys and sends the
 compiled program through the protected Windows adapter. The completed combined
 test produced 256 decisions, 82 OS events, 385 verified images and 840 complete
@@ -71,9 +140,10 @@ all 39 selected personal settings files and removed their staged plugins.
 All 160 replay images match native readbacks, with stable in-eye identity.
 Paired shot/crouch state agrees; turn eye angles differ by up to 9.375 degrees
 at equal numeric controller ticks, so phase calibration remains incomplete.
-See the [current run evidence](CONTROL_CALIBRATION_RUNS.md). The historical pilot
-below remains intact, but revalidating it is blocked by the missing original
-Valve server binary after a game update. New calibration data is diagnostic;
+See the [historical run evidence](CONTROL_CALIBRATION_RUNS.md). The historical pilot
+below remains intact; at that checkpoint, revalidation was blocked by the
+missing original Valve server binary, since recovered for the new pilot.
+That calibration data remains diagnostic;
 exact input-consumption timing and semantic button labels remain unverified.
 Final verification: **895 Python tests passed**, native Release build succeeded,
 and both successful 008 sessions exited cleanly. Steam Cloud testing remains

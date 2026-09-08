@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from typing import Any
+from .native_replay_profile import LEGACY_PROFILE, get_native_replay_profile, header_matches_profile
 
 ENGINE_SHA = "26dc9c5fee70312e7851d87c2383f70cc4d036247d8de04e3cf342ccc20773ac"
 CLIENT_SHA = "b8e2c009763e8cefb88d89a2bdcf452db17501553d473db6da060df8e6769eb4"
@@ -43,11 +44,14 @@ def _state_valid(state):
             "seeking_flag_0x1230", "packet_filter_flag_0x18a1", "alternate_gate_flag_0x18a2"))
 
 
-def _source(source):
+def _source(source, profile):
     """Validate scanner shape, prefix order, and independently derived clocks."""
     if (not isinstance(source, dict) or type(source.get("schema_version")) is not int
             or source["schema_version"] not in (1, 2) or not isinstance(source.get("source_demo_sha256"), str)):
         raise ValueError("invalid_source_scan")
+    native_profile = profile["native_profile"]
+    if (source.get("native_profile", LEGACY_PROFILE) != native_profile):
+        raise ValueError("source_native_profile_mismatch")
     commands, packets = source.get("demo_commands"), source.get("packets")
     if not isinstance(commands, list) or not commands or not isinstance(packets, list):
         raise ValueError("incomplete_source_scan")
@@ -67,10 +71,16 @@ def _source(source):
         previous_tick, previous_offset = command["demo_tick"], command["command_offset"]
     index, filtered_index = defaultdict(list), defaultdict(list)
     filter_verified = source["schema_version"] == 2 and _subset(source.get("native_seek_filter_profile"), {
-        "policy_id": FILTER_POLICY, "engine_sha256": ENGINE_SHA, "client_sha256": CLIENT_SHA,
+        "policy_id": profile["seek_filter_policy"], "engine_sha256": profile["engine_sha256"],
+        "client_sha256": profile["client_sha256"],
         "transformation": "ordered_original_message_bit_spans_then_zero_padding"})
+    if native_profile != LEGACY_PROFILE and not filter_verified:
+        raise ValueError("unsupported_source_seek_filter_profile")
     for packet in packets:
         command_index = packet.get("source_command_index") if isinstance(packet, dict) else None
+        if (native_profile != LEGACY_PROFILE and isinstance(packet, dict) and
+                packet.get("native_seek_filter_policy") != profile["seek_filter_policy"]):
+            raise ValueError("source_packet_filter_policy_mismatch")
         if (not _integer(command_index) or command_index >= len(commands) or command_index in by_command
                 or not _subset(packet, {k: commands[command_index][k] for k in
                     ("source_command_index", "demo_tick", "demo_command_kind", "command_offset")})
@@ -80,7 +90,7 @@ def _source(source):
             raise ValueError("invalid_source_packet_inventory")
         by_command[command_index] = packet
         index[(packet["packet_data_sha256"], packet["packet_data_size"], packet["demo_tick"])].append(packet)
-        if (filter_verified and packet.get("native_seek_filter_policy") == FILTER_POLICY
+        if (filter_verified and packet.get("native_seek_filter_policy") == profile["seek_filter_policy"]
                 and isinstance(packet.get("native_seek_filtered_data_sha256"), str)
                 and _integer(packet.get("native_seek_filtered_data_size"))):
             filtered_index[(packet["native_seek_filtered_data_sha256"], packet["native_seek_filtered_data_size"], packet["demo_tick"])].append(packet)
@@ -108,10 +118,11 @@ def _source(source):
 
 
 class _Audit:
-    def __init__(self, records, source):
+    def __init__(self, records, source, profile):
         self.records, self.source = records, source
+        self.profile = profile
         self.global_reasons = set()
-        self.commands, self.source_packets, self.source_index, self.filtered_index, self.prefix_clocks = _source(source)
+        self.commands, self.source_packets, self.source_index, self.filtered_index, self.prefix_clocks = _source(source, profile)
         self.states = [{"read_invocations": 0, "last_completed_read_invocation": 0,
                        "reads_in_flight": 0, "active_read_invocation": None, "returned_packets": 0,
                        "null_returns": 0, "latest_returned_packet": None,
@@ -133,11 +144,12 @@ class _Audit:
             self.global_reasons.add("missing_or_duplicate_native_header")
             return
         header = headers[0]
+        profile = self.profile
         self.thread = header.get("thread_id")
-        if (not _integer(self.thread, 1) or not _subset(header, {"schema_version": 1, "engine_sha256": ENGINE_SHA})
-                or not _subset(header.get("native_observation"), {"client_sha256": CLIENT_SHA})
+        if (not _integer(self.thread, 1) or not _subset(header, {"schema_version": 1})
+                or not header_matches_profile(header, native_profile=profile["native_profile"])
                 or not _subset(header.get("packet_trace"), {"schema_version": 1, "status": "prepared",
-                    "engine_sha256": ENGINE_SHA, "demo_player_vtable_rva": "0x52db68", "read_packet_slot": 22,
+                    "engine_sha256": profile["engine_sha256"], "demo_player_vtable_rva": "0x52db68", "read_packet_slot": 22,
                     "read_packet_function_rva": "0x2b820", "packet_data_offset": 80,
                     "packet_byte_count_offset": 116, "selected_source_tick_offset": 556,
                     "payload_hash": "SHA256_exact_returned_network_packet_bytes"})):
@@ -346,22 +358,24 @@ class _Audit:
                 "upper_source_demo_tick": None, "upper_server_tick": None, **values}
 
 
-def audit_packet_bounds(records: list[dict[str, Any]], source: dict[str, Any]) -> dict[str, Any]:
+def audit_packet_bounds(records: list[dict[str, Any]], source: dict[str, Any], *,
+                        native_profile=LEGACY_PROFILE) -> dict[str, Any]:
     """Recompute packet prefix bounds; the caller must freshly scan the .dem.
 
     Physical ordering of movie/readback writes is irrelevant. Paired native read
     IDs, their counters, and each sampled completed-ID reference establish order.
     An unknown row's numeric ceiling is diagnostic only and must not be accepted.
     """
+    profile = get_native_replay_profile(native_profile)
     if not isinstance(records, list) or len(records) > 1000000 or any(not isinstance(r, dict) for r in records):
         raise ValueError("Packet audit exceeds bounded record count")
     movies = [r for r in records if r.get("event") == "movie_frame"]
     ends = [r for r in records if r.get("event") == "movie_end"]
     try:
-        auditor = _Audit(records, source)
+        auditor = _Audit(records, source, profile)
     except (ValueError, KeyError, TypeError) as exc:
         reason = str(exc) if isinstance(exc, ValueError) else "malformed_packet_evidence"
-        return {"schema_version": 1, "profile": PROFILE, "status": "unknown", "reasons": [reason],
+        return {"schema_version": 1, "profile": profile["packet_bounds_profile"], "status": "unknown", "reasons": [reason],
                 "frames": [_Audit.result(r, {reason}) for r in movies], "endpoint": None,
                 "summary": {"verified_frames": 0, "unknown_frames": len(movies)}}
     pixels = defaultdict(list)
@@ -381,7 +395,7 @@ def audit_packet_bounds(records: list[dict[str, Any]], source: dict[str, Any]) -
     endpoint = auditor.observation(ends[0]) if len(ends) == 1 else None
     reasons = sorted(set(auditor.global_reasons).union(*(set(r["reasons"]) for r in frames), set(endpoint["reasons"]) if endpoint else set()))
     verified = sum(row["verified"] for row in frames)
-    return {"schema_version": 1, "profile": PROFILE, "status": "verified" if frames and not reasons else "unknown",
+    return {"schema_version": 1, "profile": profile["packet_bounds_profile"], "status": "verified" if frames and not reasons else "unknown",
             "reasons": reasons, "source_demo_sha256": source.get("source_demo_sha256"),
             "frames": frames, "endpoint": endpoint,
             "summary": {"verified_frames": verified, "unknown_frames": len(frames) - verified,

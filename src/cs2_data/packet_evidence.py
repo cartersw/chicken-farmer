@@ -7,14 +7,28 @@ are decoded here; canonical command reconstruction stays with demoinfocs.
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
 import hashlib
 import io
+import json
 from pathlib import Path
+import threading
+import zlib
 
 from .clock_evidence import protobuf_fields, scalar
 from .io import sha256_file
+from .native_replay_profile import LEGACY_PROFILE, get_native_replay_profile
 
 MAX_BLOCK = 4 * 1024 * 1024
+MAX_COMMANDS_LEGACY = 100000
+MAX_COMMANDS_CURRENT = 1_000_000
+MAX_CACHED_PREFIXES = 4
+MAX_CACHED_PREFIX_BYTES = 384 * 1024 * 1024
+MAX_SERIALIZED_PREFIX_BYTES = 1024 * 1024 * 1024
+_PREFIX_CACHE = OrderedDict()
+_CACHE_LOCK = threading.RLock()
+_CACHE_STATS = {"hits": 0, "extensions": 0, "cold_scans": 0, "evictions": 0,
+                "oversized_skips": 0, "decoded_commands": 0}
 NATIVE_SEEK_FILTER_POLICY = "cs2-14178-seek-message-filter-v1"
 NATIVE_SEEK_FILTER_ENGINE_SHA256 = "26dc9c5fee70312e7851d87c2383f70cc4d036247d8de04e3cf342ccc20773ac"
 NATIVE_SEEK_FILTER_CLIENT_SHA256 = "b8e2c009763e8cefb88d89a2bdcf452db17501553d473db6da060df8e6769eb4"
@@ -140,7 +154,10 @@ def packet_messages(data: bytes) -> list[dict]:
 
 
 def packet_clocks(data: bytes) -> dict:
-    messages = packet_messages(data)
+    return _packet_clocks(packet_messages(data))
+
+
+def _packet_clocks(messages) -> dict:
     ticks, snapshots, commands = [], [], []
     for message in messages:
         kind = message["message_id"]
@@ -164,7 +181,7 @@ def packet_clocks(data: bytes) -> dict:
             "snapshot_ticks": snapshots, "command_envelopes": commands}
 
 
-def derive_native_seek_filter(data: bytes) -> bytes:
+def derive_native_seek_filter(data: bytes, *, native_profile=LEGACY_PROFILE) -> bytes:
     """Reproduce the pinned native seek filter by copying original wire spans.
 
     Kept message IDs, length varints, and protobuf bytes remain bit-exact and in
@@ -173,9 +190,14 @@ def derive_native_seek_filter(data: bytes) -> bytes:
     padding. This transformation can remove data; it cannot insert future data.
     Applying it is not itself evidence that a native capture used this policy.
     """
+    get_native_replay_profile(native_profile)
+    return _native_seek_filter(data, packet_messages(data))
+
+
+def _native_seek_filter(data, messages):
     output = bytearray()
     output_bits = 0
-    for message in packet_messages(data):
+    for message in messages:
         if message["message_id"] in _ENGINE_SEEK_DROP | _CLIENT_SEEK_DROP:
             continue
         start, end = message["start_bit"], message["end_bit"]
@@ -210,24 +232,131 @@ def _file_header(payload: bytes, source_row: dict) -> dict:
                (("patch_version", 2), ("build_num", 13), ("server_start_tick", 15))}}
 
 
-def scan_demo_packets(path: Path, *, expected_sha256: str, through_demo_tick: int) -> dict:
-    """Scan a complete source prefix, hashing exact CDemoPacket.data bytes.
+def clear_packet_scan_cache():
+    """Discard process-local acceleration state; no on-disk proof is loaded."""
+    with _CACHE_LOCK:
+        _PREFIX_CACHE.clear()
+        for key in _CACHE_STATS:
+            _CACHE_STATS[key] = 0
 
-    All packet types, including seek checkpoints, retain their source type and
-    file offset. This scan does not replay checkpoints as live input commands.
-    The first later header establishes coverage without decoding later payloads.
+
+def packet_scan_cache_info():
+    """Diagnostics only, deliberately excluded from deterministic proof data."""
+    with _CACHE_LOCK:
+        return {**_CACHE_STATS, "entries": len(_PREFIX_CACHE),
+                "retained_bytes": sum(len(value[0]) for value in _PREFIX_CACHE.values()),
+                "max_entries": MAX_CACHED_PREFIXES, "max_bytes": MAX_CACHED_PREFIX_BYTES,
+                "codec": "zlib-json-v1", "max_serialized_prefix_bytes": MAX_SERIALIZED_PREFIX_BYTES}
+
+
+def _implementation_digests():
+    return tuple((name, sha256_file(Path(__file__).with_name(name + ".py"))) for name in
+                 ("packet_evidence", "clock_evidence", "native_replay_profile", "io"))
+
+
+def _remember_prefix(key, result, next_header_offset):
+    # Immutable serialized values prevent callers from poisoning a later proof.
+    encoded = json.dumps(result, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    if MAX_CACHED_PREFIXES < 1 or len(encoded) > MAX_SERIALIZED_PREFIX_BYTES:
+        _CACHE_STATS["oversized_skips"] += 1
+        return
+    compressed = zlib.compress(encoded, level=1)
+    if len(compressed) > MAX_CACHED_PREFIX_BYTES:
+        _CACHE_STATS["oversized_skips"] += 1
+        return
+    _PREFIX_CACHE.pop(key, None)
+    while _PREFIX_CACHE and (len(_PREFIX_CACHE) >= MAX_CACHED_PREFIXES or
+            sum(len(value[0]) for value in _PREFIX_CACHE.values()) + len(compressed) > MAX_CACHED_PREFIX_BYTES):
+        _PREFIX_CACHE.popitem(last=False)
+        _CACHE_STATS["evictions"] += 1
+    _PREFIX_CACHE[key] = (compressed, next_header_offset, len(encoded), hashlib.sha256(encoded).hexdigest())
+
+
+def _restore_prefix(cached):
+    """Decode only a bounded, complete, unchanged in-process serialization."""
+    compressed, _, expected_size, expected_hash = cached
+    if type(expected_size) is not int or not 0 <= expected_size <= MAX_SERIALIZED_PREFIX_BYTES:
+        raise ValueError("Cached packet serialization exceeds its decoded byte bound")
+    decoder = zlib.decompressobj()
+    try:
+        encoded = decoder.decompress(compressed, expected_size+1)
+    except zlib.error as error:
+        raise ValueError("Cached packet serialization is corrupt") from error
+    if (len(encoded) != expected_size or not decoder.eof or decoder.unconsumed_tail or decoder.unused_data
+            or hashlib.sha256(encoded).hexdigest() != expected_hash):
+        raise ValueError("Cached packet serialization is incomplete, oversized or changed")
+    return json.loads(encoded)
+
+
+def _trim_prefix(result, through):
+    # The larger verified prefix contains the exact first later header, even
+    # when multiple commands share a tick or there is a gap in source ticks.
+    later = next((row for row in result["demo_commands"] if row["demo_tick"] > through), None)
+    result["demo_commands"] = [row for row in result["demo_commands"] if row["demo_tick"] <= through]
+    result["packets"] = [row for row in result["packets"] if row["demo_tick"] <= through]
+    if later is not None:
+        result["coverage_next_header_tick"] = later["demo_tick"]
+    header = result.get("file_header")
+    if header is not None and header["demo_tick"] > through:
+        result["file_header"] = None
+    result["through_demo_tick"] = through
+    return result
+
+
+def scan_demo_packets(path: Path, *, expected_sha256: str, through_demo_tick: int,
+                      native_profile=LEGACY_PROFILE) -> dict:
+    """Read a byte-verified prefix, reusing only unchanged in-process evidence.
+
+    Every call hashes the entire original demo and implementation bytes before
+    and after inspection. Earlier prefixes are trimmed at their exact first
+    later header; extensions resume at that header with original source indexes.
+    Cached data never comes from a saved report and never grants acceptance.
     """
-    if type(through_demo_tick) is not int or not 0 <= through_demo_tick <= 20000:
-        raise ValueError("Packet audit currently supports source prefixes through tick 20000")
-    if sha256_file(path) != expected_sha256:
-        raise ValueError("Packet audit source demo hash mismatch")
-    packets, commands = [], []
-    file_header = None
-    prior_tick = -1
+    path = Path(path).resolve()
+    profile = get_native_replay_profile(native_profile)
+    tick_limit = 20000 if native_profile == LEGACY_PROFILE else 2_147_483_647
+    command_limit = MAX_COMMANDS_LEGACY if native_profile == LEGACY_PROFILE else MAX_COMMANDS_CURRENT
+    if type(through_demo_tick) is not int or not 0 <= through_demo_tick <= tick_limit:
+        raise ValueError(f"Packet audit source prefix must end within ticks 0..{tick_limit}")
+    with _CACHE_LOCK:
+        if sha256_file(path) != expected_sha256:
+            raise ValueError("Packet audit source demo hash mismatch")
+        implementation = _implementation_digests()
+        key = (str(path), expected_sha256, native_profile, tick_limit, command_limit, MAX_BLOCK,
+               profile["seek_filter_policy"], profile["engine_sha256"], profile["client_sha256"],
+               MAX_SERIALIZED_PREFIX_BYTES, implementation)
+        cached = _PREFIX_CACHE.get(key)
+        previous = _restore_prefix(cached) if cached is not None else None
+        if previous is not None and through_demo_tick <= previous["through_demo_tick"]:
+            result = _trim_prefix(previous, through_demo_tick)
+            _CACHE_STATS["hits"] += 1
+        else:
+            _CACHE_STATS["extensions" if previous is not None else "cold_scans"] += 1
+            result, next_offset = _scan_prefix(path, expected_sha256, through_demo_tick, native_profile,
+                profile, command_limit, previous, cached[1] if cached is not None else None)
+        if sha256_file(path) != expected_sha256:
+            raise ValueError("Source demo changed during packet audit")
+        if _implementation_digests() != implementation:
+            raise ValueError("Packet audit implementation changed during verification")
+        if previous is None or through_demo_tick > previous["through_demo_tick"]:
+            _remember_prefix(key, result, next_offset)
+        elif cached is not None:
+            _PREFIX_CACHE.move_to_end(key)
+        return result
+
+
+def _scan_prefix(path, expected_sha256, through_demo_tick, native_profile, profile,
+                 command_limit, previous=None, next_header_offset=None):
+    packets = previous["packets"] if previous is not None else []
+    commands = previous["demo_commands"] if previous is not None else []
+    file_header = previous["file_header"] if previous is not None else None
+    prior_tick = commands[-1]["demo_tick"] if commands else -1
     with path.open("rb") as stream:
         if stream.read(8) != b"PBDEMS2\x00" or len(stream.read(8)) != 8:
             raise ValueError("Packet audit requires a standard Source 2 .dem")
-        for command_index in range(100000):
+        if next_header_offset is not None:
+            stream.seek(next_header_offset)
+        for command_index in range(len(commands), command_limit):
             offset = stream.tell()
             raw_kind, unsigned_tick = uvarint(stream), uvarint(stream)
             kind, compressed = raw_kind & ~64, bool(raw_kind & 64)
@@ -252,6 +381,7 @@ def scan_demo_packets(path: Path, *, expected_sha256: str, through_demo_tick: in
                    "command_offset": offset, "payload_offset": payload_offset, "payload_size": size,
                    "compressed": compressed, "source_payload_sha256": hashlib.sha256(raw).hexdigest()}
             commands.append(row)
+            _CACHE_STATS["decoded_commands"] += 1
             if kind == 1:
                 if file_header is not None or command_index != 0:
                     raise ValueError("Duplicate or misplaced demo file header")
@@ -262,23 +392,23 @@ def scan_demo_packets(path: Path, *, expected_sha256: str, through_demo_tick: in
                 if kind == 13:
                     fields = protobuf_fields(embedded(fields, 2))
                 data = embedded(fields, 3, optional=True)
-                filtered = derive_native_seek_filter(data)
+                messages = packet_messages(data)
+                filtered = _native_seek_filter(data, messages)
                 packets.append({**row, "packet_data_size": len(data),
                                 "packet_data_sha256": hashlib.sha256(data).hexdigest(),
-                                "native_seek_filter_policy": NATIVE_SEEK_FILTER_POLICY,
+                                "native_seek_filter_policy": profile["seek_filter_policy"],
                                 "native_seek_filtered_data_size": len(filtered),
                                 "native_seek_filtered_data_sha256": hashlib.sha256(filtered).hexdigest(),
-                                **packet_clocks(data)})
+                                **_packet_clocks(messages)})
             prior_tick = tick
         else:
             raise ValueError("Source prefix exceeds bounded command count")
-    if sha256_file(path) != expected_sha256:
-        raise ValueError("Source demo changed during packet audit")
     return {"schema_version": 2, "source_demo_sha256": expected_sha256, "source_demo_path": str(path.resolve()),
             "through_demo_tick": through_demo_tick, "coverage_next_header_tick": tick,
             "file_header": file_header,
-            "native_seek_filter_profile": {"policy_id": NATIVE_SEEK_FILTER_POLICY,
-                "engine_sha256": NATIVE_SEEK_FILTER_ENGINE_SHA256,
-                "client_sha256": NATIVE_SEEK_FILTER_CLIENT_SHA256,
+            **({"native_profile": native_profile} if native_profile != LEGACY_PROFILE else {}),
+            "native_seek_filter_profile": {"policy_id": profile["seek_filter_policy"],
+                "engine_sha256": profile["engine_sha256"],
+                "client_sha256": profile["client_sha256"],
                 "transformation": "ordered_original_message_bit_spans_then_zero_padding"},
-            "packets": packets, "demo_commands": commands, "training_ready": False}
+            "packets": packets, "demo_commands": commands, "training_ready": False}, offset

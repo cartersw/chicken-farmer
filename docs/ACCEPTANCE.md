@@ -2,31 +2,52 @@
 
 ## Current result and workflow
 
-**The current pilot has 129 accepted samples and 31 rejected candidates.**
-The zero counts later in this document describe older captures evaluated with
-the historical `accept-samples` workflow. They are preserved results for those
-specific runs; they are not the current pilot's acceptance count.
+**The current v2 competitive corpus has 1,692 accepted samples and 68
+rejected candidates across seven clips on Dust2 and Nuke.** Each sample contains
+eight images and masked 32 Hz angular/control targets. Use the
+[competitive workflow](COMPETITIVE_ACCEPTANCE.md), [tensor loader](TRAINING_DATASET.md)
+and [current milestone](progress/ACTION_COVERAGE_AND_THROUGHPUT.md).
 
-| Capture / workflow | Candidates | Accepted | Rejected | Result manifest |
-| --- | ---: | ---: | ---: | --- |
-| **016: current `accept-causal-samples` pilot** | **160** | **129** | **31** | [Current causal acceptance](../data/accepted/dust2-causal-016-v1/causal_acceptance.json) |
-| 008-010: historical `accept-samples` campaign | 480 | 0 | 480 | [Historical campaign](../data/validation-campaigns/dust2-three-player-v1/campaign_manifest.json) |
-| 006: historical first `accept-samples` run | 160 | 0 | 160 | [Historical acceptance](../data/accepted/dust2-competitive-006-v1/acceptance_manifest.json) |
+| Clip | Accepted | Rejected | Current publication |
+| --- | ---: | ---: | --- |
+| Dust2 round 8, ordinary | 310 | 10 | [Acceptance](../data/collections/action-coverage-001/batch/runs/7d85cdc5424882107fa8e918/acceptance/attempt-001/competitive_acceptance.json) |
+| Nuke round 7, ordinary | 302 | 18 | [Acceptance](../data/collections/action-coverage-001/batch/runs/de80011735c3c92204241e4d/acceptance/attempt-001/competitive_acceptance.json) |
+| Dust2 round 24, attack hint | 313 | 7 | [Acceptance](../data/collections/action-coverage-001/batch/runs/a5b61fe50beca1ffd70a15ef/acceptance/attempt-001/competitive_acceptance.json) |
+| Nuke round 21, reload hint | 311 | 9 | [Acceptance](../data/collections/action-coverage-001/batch/runs/a88c3aa49c7b41fffe78d927/acceptance/attempt-001/competitive_acceptance.json) |
+| Dust2 round 5, refreshed | 150 | 10 | [Acceptance](../data/batches/competitive-expansion-001/runs/df971dd315eeae8b6d3f6211/acceptance/attempt-003/competitive_acceptance.json) |
+| Nuke round 3, refreshed | 153 | 7 | [Acceptance](../data/batches/competitive-expansion-001/runs/5ebb0db256cd61709ee245af/acceptance/attempt-003/competitive_acceptance.json) |
+| Dust2 round 3 pilot, refreshed | 153 | 7 | [Acceptance](../data/accepted/dust2-competitive-controls-006-v3/competitive_acceptance.json) |
 
-The two workflows have different target definitions. The historical workflow
+There are **3,384 valid angular fields and 125,240 valid button fields**,
+including positive reload labels. Unknowns remain masked. All 55 seconds of
+source footage belong to one BO3 training group; validation/test remain empty.
+The new Nuke round 7 capture retains eight histories rejected at an ambiguous
+checkpoint frame, alongside incomplete histories and unsupported commands.
+Rejection reasons can overlap and must not be summed as independent samples.
+
+Earlier publications are preserved historical evidence and often reuse the same
+images. The [three-clip expansion](progress/COMPETITIVE_EXPANSION.md) reported 456
+accepted / 24 rejected; its first Nuke zero result was later reissued after fixing
+an absolute-clock cap. The [single-command 016 pilot](../data/accepted/dust2-causal-016-v1/causal_acceptance.json)
+reported 129 / 31. The [initial strict campaign](../data/validation-campaigns/dust2-three-player-v1/campaign_manifest.json)
+reported 0 / 480. Zero counts below refer to these older contracts/captures, not the
+current corpus. Do not add historical republications to current counts.
+
+These workflows have different target definitions. The historical strict workflow
 requires proof of action timing inside its assigned frame intervals, including
 the relevant fractional timing and visual transitions. Those requirements
 remain unresolved for its recorded captures.
 
-The current `recorded_future_server_command_v1` profile instead predicts one
+The historical `recorded_future_server_command_v1` profile predicts one
 recorded future command from eight images. Trial 016 supplies complete packet
 information bounds, pixel matching and first-person identity evidence. Both
 commands contributing to the aim difference must begin strictly after the
 image history's information bound. This establishes the narrower future target;
 it does not establish every subtick's original timing or promote the old runs.
 
-To repeat the current pilot's acceptance, run from the inner repository with a
-fresh output directory:
+The historical command below also requires its original installed-binary path.
+The new competitive workflow explicitly uses the recovered archive and should
+be used with the current installation. Historical command reference:
 
 ```powershell
 $parsed = 'data/parsed/v2-state-fixed/f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f2a75a092071983c747c773'
@@ -39,17 +60,17 @@ $parsed = 'data/parsed/v2-state-fixed/f3695a7131a4c70eeae3dbdaab63a0e1d2510c987f
 ```
 
 Defaults are eight history frames and a two-frame target horizon, with no
-previous-action input features. The current manifest is `causal_acceptance.json`.
+previous-action input features. That historical manifest is `causal_acceptance.json`.
 See [the synchronization guide](SYNCHRONIZATION.md#accept-and-load-the-first-training-subset)
 for exact target semantics, outputs, retained source requirements and the loader
 that independently recomputes acceptance. The 129 samples are a five-second
-pilot; broader data collection and the tensor loader remain unfinished.
+pilot; broader data collection remains unfinished. The new tensor loader uses
+the separate competitive acceptance profile linked above.
 
 ## Historical `accept-samples` reference
 
 Everything below documents the historical workflow, its requirements and its
-original results. Its command, defaults and manifest differ from the current
-future-command workflow above.
+original results. Its command, defaults and manifest differ from the competitive and historical future-command workflows above.
 
 `accept-samples` writes a new partition of accepted and rejected temporal samples. It does not train a model or change the video, canonical commands, alignment, or their original readiness flags. A completed pipeline can legitimately produce zero accepted samples.
 
@@ -125,7 +146,7 @@ The historical [three-player Dust2 campaign](../data/validation-campaigns/dust2-
 | [009](../data/accepted/dust2-validation-009-state-fixed-v2/acceptance_manifest.json) | 4 | 76561198407480534 | 160 | 152 | 0 |
 | [010](../data/accepted/dust2-validation-010-state-fixed-v2/acceptance_manifest.json) | 5 | 76561198254835598 | 160 | 152 | 0 |
 
-All three historical captures pass integrity, native pixel correspondence, and strict first-person POV checks. Both clock checks and independent transition calibration remain unknown in these reports. Across their 480 candidates, 456 windows are complete and all 480 are rejected. Local input quality also rejects 108 windows with missing button messages and 45 with invalid subticks; a crouch mismatch affects 9 windows. These counts overlap with the timing rejections. The current 016 pilot is a separate capture and is not included in this table or campaign.
+All three historical captures pass integrity, native pixel correspondence, and strict first-person POV checks. Both clock checks and independent transition calibration remain unknown in these reports. Across their 480 candidates, 456 windows are complete and all 480 are rejected. Local input quality also rejects 108 windows with missing button messages and 45 with invalid subticks; a crouch mismatch affects 9 windows. These counts overlap with the timing rejections. The historical 016 pilot is a separate capture and is not included in this table or campaign.
 
 To repeat the campaign with the same inputs:
 

@@ -2,6 +2,14 @@
 
 **Updated: 2026-09-08.** Evidence: [STATUS.md](STATUS.md).
 
+Action-aware selection, longer protected captures, bounded source reuse and
+faster HUD review are implemented and verified. The [current milestone](ACTION_COVERAGE_AND_THROUGHPUT.md)
+contains **1,692 accepted samples** with positive reload/control fields.
+Next priorities are additional independent competitive series for validation/test,
+broader weapon/action coverage, then a small CNN/GRU baseline and masked losses.
+All current clips belong to one BO3; exact within-tick events remain masked.
+No model training has run.
+
 The approved first turning/button investigation is complete. See
 [turn and button results](TURN_AND_BUTTON_CALIBRATION.md): continuous turns
 support a frozen interpolation candidate, while rapid-input confirmation
@@ -14,7 +22,7 @@ The approved executor and scoped label work is now implemented. The combined
 recording verifies angular/button/movement response but fails raw mouse-count
 sum equality; that stricter result remains incomplete. The independent label
 audit passes all twelve mouse and ten keyboard checks. See
-[the new milestone](CONTROL_EXECUTION_AND_LABELS.md).
+[the executor milestone](CONTROL_EXECUTION_AND_LABELS.md).
 
 ## Current controller/calibration work
 
@@ -41,8 +49,15 @@ audit passes all twelve mouse and ten keyboard checks. See
 - [ ] Extend actual dispatch phases/cadence beyond the current 32 FPS console loop; off-grid scheduled milliseconds alone are not phase variation.
 - [ ] Investigate large angle cuts/recoil separately; do not apply a universal frame shift.
 - [ ] Define and measure weapon-selection controls.
-- [ ] Resolve the remaining replay observer HUD strip before full visual training acceptance.
-- [ ] Re-establish current-build competitive packet/command support, or recover the exact archived binaries needed to revalidate the historical pilot.
+- [x] Remove the observer strip through a private resource archive and review all 160 original current-pilot images while preserving the player HUD.
+- [x] Re-establish current-build competitive packet/command support and recover the exact original inspected binaries into the workspace.
+- [x] Establish original 14178 competitive source button semantics independently, with per-field and per-command masks.
+- [x] Extend full source eligibility reconstruction and visual review beyond the pinned Dust2 pilot; support current-profile packet prefixes beyond tick 20,000.
+- [x] Add bounded resumable processing across rounds/players/maps while retaining settings and acceptance guards.
+- [x] Reduce repeated prefix scanning with verified bounded compression, halve launches for ten-second collections, and retain exact source checks.
+- [ ] Profile full batch acceptance before large ingestion; packet-scan and HUD speedups do not establish equal gains for complete verification.
+- [x] Review four additional ten-second captures with one-pass sheets and a local index; every original image still needs actual review.
+- [ ] Resolve checkpoint duplicates only with complete byte-bound clock/packet evidence; preserve the eight current affected-history rejections.
 
 These calibration probes are controlled local tests. Training/evaluation corpus
 work remains competitive round footage, with match/series separation. A single
@@ -61,9 +76,11 @@ probe cannot certify general subtick timing or physical input latency.
 - [x] Implement temporal sample acceptance with exact references and rejection reasons.
 - [x] Fix pause/ammo extraction and re-extract Dust2 without changing raw commands.
 
-The approved clock-proof and first-subset work is implemented. The new bounded
+The approved clock-proof and first-subset work is implemented. The historical bounded
 future-command profile produces **129 accepted samples** from trial 016. The
 older strict fractional-alignment campaign retains its original zero count.
+The competitive control profile separately accepts **153 samples** from
+the clean 006 capture within the current larger corpus; historical publications remain intact.
 
 ## Settings protection: online check deferred by the user
 
@@ -98,23 +115,25 @@ Evidence: all 160 trial-016 image bounds and the endpoint verify. See
 
 ## 2. First accepted subset delivered; expand coverage next
 
-- [x] Produce accepted/rejected manifests with exact image/command references: 129 accepted, 31 rejected.
+- [x] Produce accepted/rejected manifests with exact image/command references: current seven-clip control subset 1,692 accepted/68 rejected; historical single-command pilot 129/31.
 - [x] Recompute acceptance during loading and retain raw command/subtick provenance.
-- [ ] Extend firing to more players/weapons; include movement starts/stops and rapid transitions.
-- [ ] Regenerate Nuke/Cache state with extractor 0.1.2 when extending the corpus.
+- [x] Add balanced ordinary/reload/sustained-fire clips across four new rounds/POVs; retain movement/crouch and unresolved jump activity.
+- [ ] Expand weapon diversity, rare held/transition targets and ordinary play across independent series; do not equate activity bits with exact presses.
+- [x] Regenerate Nuke state with extractor 0.1.2 and independently verify the full source.
+- [ ] Regenerate Cache state with extractor 0.1.2 when extending the corpus.
 - [ ] Broaden map/build coverage before certifying a reusable rendering profile.
 - [x] Keep missing-baseline, absent-message and unsupported-fraction rejection; recover additional data only with proven semantics.
 
 Completion: a small real corpus has accepted windows, complete provenance and
 meaningful negative cases. The global validator may still reject incomplete demos.
 
-## 3. Next: build the training data interface
+## 3. Training data interface
 
-- [ ] Implement a tensor loader using accepted image histories and future-command targets. The first profile has no previous-action input features.
-- [ ] Define variable command/subtick targets, tensor padding and label masks.
-- [ ] Split deterministically by match/series; keep the current three maps together.
-- [ ] Verify a complete training batch and sampling statistics.
-- [ ] Collect additional matches for independent evaluation.
+- [x] Implement a tensor loader using eight accepted RGB images and future-command targets, with no previous-action input features.
+- [x] Define fixed two-command 32 Hz targets and validity masks; preserve variable raw provenance separately and leave exact event channels unavailable.
+- [x] Split deterministically by match/series; keep the current three maps together in training.
+- [x] Materialize and independently reload a real CPU batch: four samples, `[4,8,3,180,320]` RGB, 8 valid angular fields, 320 valid button fields including 24 positives; 1,692/0/0 series split.
+- [ ] Collect additional independent series for validation/test; both are currently empty.
 
 ## 4. Train and evaluate
 

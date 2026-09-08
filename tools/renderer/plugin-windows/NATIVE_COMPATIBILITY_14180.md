@@ -1,4 +1,29 @@
-# Native calibration compatibility: installed 1.41.8.0
+# Native compatibility: installed 1.41.8.0
+
+The current competitive path was added on 2026-09-08 as
+`cs2-14180-competitive-replay-v1`, selected only by
+`-chicken-competitive-replay`. Calibration and competitive flags cannot be
+combined. The Windows worker checks all eight registered binary hashes before
+staging and again before launch; source-command acceptance remains a separate
+original-demo audit. Unmarked replay keeps the historical profile.
+
+The direct reader/filter comparison against the recovered original binaries is
+retained at
+`data/native-profiles/current-competitive-replay-v1/binary_comparison.json`
+(SHA-256 `6f5b3484bb48fee81ec9aae0a3df0d1c786e66827413d95687c62e047f7c8cc0`).
+Eight compared ranges account for every changed byte with 39 target relocations;
+the independently recovered filter drop sets agree. This supports the selected
+packet-reader/filter contract, not whole-game behavior or latency equivalence.
+Fresh packet bytes and companion frame/POV evidence are still required.
+
+Competitive runs also emit `competitive_resource_paths` once after capture
+initialization. The diagnostic uses the pinned filesystem interface's
+`RelativePathToFullPath` slot 41 (`0x5d2d0`) and already checked `GetSearchPath`
+slot 43 (`0x54480`) to report GAME/MOD selection. It reads no more than 1 MiB
+when hashing a resolved loose file, changes no search path, and does not claim
+that Panorama consumed a resource. Actual HUD images require separate review.
+
+## Original calibration inspection
 
 The installed engine and client changed after the historical 1.41.7.8 replay
 trials. A read-only inspection on 2026-09-07 established the specific contracts

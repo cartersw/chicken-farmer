@@ -19,6 +19,8 @@ from .viewer import viewer
 from .validation import validate_clip
 from .synchronization import audit_synchronization
 from .causal_acceptance import accept_causal_samples
+from .competitive_control import accept_competitive_controls
+from .native_replay_profile import LEGACY_PROFILE, PROFILES
 from .control_audit import audit_control_candidates, write_control_contract
 
 
@@ -82,6 +84,8 @@ def parser() -> argparse.ArgumentParser:
     sync.add_argument("--dataset", type=Path, required=True)
     sync.add_argument("--network-clock", type=Path, required=True)
     sync.add_argument("--out", type=Path, required=True)
+    sync.add_argument("--native-profile", choices=tuple(PROFILES), default=LEGACY_PROFILE,
+                      help="Fixed inspected replay build; current competitive captures require explicit selection")
     causal = commands.add_parser("accept-causal-samples", help="Accept future server-command samples using freshly verified packet bounds")
     causal.add_argument("--parsed", type=Path, required=True)
     causal.add_argument("--dataset", type=Path, required=True)
@@ -90,6 +94,10 @@ def parser() -> argparse.ArgumentParser:
     causal.add_argument("--out", type=Path, required=True)
     causal.add_argument("--history-frames", type=int, default=8)
     causal.add_argument("--target-horizon-frames", type=int, default=2)
+    competitive = commands.add_parser("accept-competitive-controls",
+        help="Reverify current competitive replay histories and masked 32 Hz control targets")
+    for name in ("parsed", "dataset", "network-clock", "state-context", "out"):
+        competitive.add_argument("--" + name, type=Path, required=True)
     control = commands.add_parser("control-contract", help="Write the proposed 32 Hz action JSON Schema; calibration remains unmeasured")
     control.add_argument("--out", type=Path, required=True)
     control_audit = commands.add_parser("audit-control-candidates", help="Reverify accepted observations and audit diagnostic two-command control candidates")
@@ -134,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
                   "validate-clip": validate_clip, "accept-samples": accept_samples,
                   "audit-synchronization": audit_synchronization,
                   "accept-causal-samples": accept_causal_samples,
+                  "accept-competitive-controls": accept_competitive_controls,
                   "control-contract": write_control_contract,
                   "audit-control-candidates": audit_control_candidates,
                   "summarize-campaign": summarize_campaign,

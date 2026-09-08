@@ -38,16 +38,21 @@ bool HasArgument(const char* name) {
     return false;
 }
 // Current-build offsets are reviewed separately in NATIVE_COMPATIBILITY_14180.md.
-// Ordinary replay keeps the historical profile; the newer one is explicitly
-// scoped to controlled calibration and its diagnostic replay.
+// Historical replay keeps its original profile. Current competitive replay
+// selects a separate evidence profile; source-command acceptance is external.
 bool CalibrationProfile() {
     return HasArgument("-chicken-calibration-plan") || HasArgument("-chicken-calibration-replay");
 }
+bool CompetitiveProfile() { return HasArgument("-chicken-competitive-replay"); }
+bool CurrentBuildProfile() { return CalibrationProfile() || CompetitiveProfile(); }
 const char* ExpectedEngineSha() {
-    return CalibrationProfile() ? "1fcf2920de28f625ee1ac5d6436c582ed381a4a913cfe2c9701b5551cc912d07" : EngineSha;
+    return CurrentBuildProfile() ? "1fcf2920de28f625ee1ac5d6436c582ed381a4a913cfe2c9701b5551cc912d07" : EngineSha;
 }
-size_t ProfileRva(size_t legacy, size_t calibration) { return CalibrationProfile() ? calibration : legacy; }
-const char* ProfileName() { return CalibrationProfile() ? "cs2-14180-calibration-v1" : "cs2-14178-replay-v1"; }
+size_t ProfileRva(size_t legacy, size_t current) { return CurrentBuildProfile() ? current : legacy; }
+const char* ProfileName() {
+    return CompetitiveProfile() ? "cs2-14180-competitive-replay-v1" :
+        CalibrationProfile() ? "cs2-14180-calibration-v1" : "cs2-14178-replay-v1";
+}
 
 template<class T> T Read(const void* base, size_t offset) {
     T value{};
@@ -218,7 +223,7 @@ bool NewReadPixels(void* self, void* texture, const int* sourceRect, int unknown
         row["replay_demo_tick"] = Tick();
         row["image_format"] = format;
         row["native_argument9"] = unknown8;
-        row["native_caller_rva"] = CalibrationProfile() ? "0x1e88b6" : "0x1e88c6";
+        row["native_caller_rva"] = CurrentBuildProfile() ? "0x1e88b6" : "0x1e88c6";
         row["clock_on_engine_thread"] = GetCurrentThreadId() == engineThread;
         row["native_observation"] = Observation::Snapshot("pixel_readback_before");
         row["native_clock"] = ClockTrace::Snapshot("pixel_readback_before");
@@ -280,6 +285,8 @@ bool NewReadPixels(void* self, void* texture, const int* sourceRect, int unknown
 
 void Initialize() {
     if (attempted) return;
+    if (CalibrationProfile() && CompetitiveProfile())
+        PluginError("Capture profiles must not mix calibration and competitive replay");
     attempted = true;
     const char* path = nullptr;
     for (int i = 0; i + 1 < CommandLine()->ParmCount(); ++i)
@@ -305,7 +312,7 @@ void Initialize() {
     originalMovieEnd = reinterpret_cast<MovieEndFn>(movieVtable[2]);
     originalReadPixels = reinterpret_cast<ReadPixelsFn>(renderVtable[74]);
     if (!originalReadPixels || !renderVtable[90]) PluginError("Capture hook render interface is incomplete");
-    if (CalibrationProfile()) {
+    if (CurrentBuildProfile()) {
         auto renderModule = GetModuleHandleA("rendersystemdx11.dll");
         auto renderBase = reinterpret_cast<BYTE*>(renderModule);
         if (Observation::ModuleSha(renderModule) != "45b610ff89bb5adcb77a8d34b1f576b25e0ca389ffb3c4883f3243adfebf0500" ||
@@ -327,7 +334,7 @@ void Initialize() {
            {"clock", "IDemoFile.GetDemoTick"}, {"fraction_available", false},
            {"training_ready", false}, {"readback_hash", "SHA256_RGB_native_rows_and_flipped_rows"},
            {"render_clock", {{"field", "EventClientOutput_t.m_flRenderTime"}, {"units", "seconds"},
-                             {"event_caller_rva", CalibrationProfile() ? "0x1e5b48" : "0x1e5b58"}, {"field_offset", 40},
+                             {"event_caller_rva", CurrentBuildProfile() ? "0x1e5b48" : "0x1e5b58"}, {"field_offset", 40},
                              {"execution_clock_calibrated", false},
                              {"sdk_commit", "bd17582be4bc18970e4fe4c518359872fda8276d"}}},
            {"native_epoch", {{"field", "IDemoFile.GetDemoStartTick"}, {"getter_rva", "0x35a80"},

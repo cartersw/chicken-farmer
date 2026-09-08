@@ -1,8 +1,20 @@
 # Native replay HUD investigation
 
+**Current result (2026-09-08):** the current-build private HUD archive removes
+the spectator identity/weapon strip while preserving normal player HUD. All
+480 original images across three Dust2/Nuke captures have a complete visual
+review bound to their hashes. New batch contact sheets prepare every frame for
+review; they do not grant approval automatically. The temporary mounts were
+removed and installed HUD assets remain unchanged. See
+[current evidence](progress/COMPETITIVE_EXPANSION.md) and the
+[original current-build implementation](progress/COMPETITIVE_TRAINING_PILOT.md).
+
+The investigation below records the earlier 14178 build and historical worker
+profile; it is retained as source and implementation history.
+
 This note records source evidence from the installed CS2 build. A command existing in the binary, or a matching stylesheet rule, does not establish its effect in an actual capture. Runtime capture results are recorded separately below. The investigation did not launch CS2 or change installed assets.
 
-The current worker profile is `windows-pilot-v5-native-player-hud`: native HUD settings plus six seconds of UI settling after seeking, with **no encoder masks**. Completed run 006 verifies this profile in a real five-second clip. Its first, shot-adjacent and last raw previews contain no stale announcement while preserving the player's money and HUD. Earlier masked clips remain historical artifacts.
+The historical worker profile is `windows-pilot-v5-native-player-hud`: native HUD settings plus six seconds of UI settling after seeking, with **no encoder masks**. Completed run 006 verifies this profile in a real five-second clip. Its first, shot-adjacent and last raw previews contain no stale announcement while preserving the player's money and HUD. Earlier masked clips remain historical artifacts.
 
 ## Installed source identity
 
@@ -146,3 +158,171 @@ cleaned native HUD, with the observer name/weapon strip still visible; see
 `data/rendered/windows-timing-016/visual-review.json`. Online Cloud testing is
 deferred. The accepted future-command profile does not claim original-client
 HUD equivalence.
+
+## Spectator strip override candidates, 2026-09-08
+
+The installed 1.41.8.0 assets retain the directory SHA above. The bottom strip's
+separate `.HudSpecplayer__Bg` rule is in
+`panorama/styles/hud/hudhealthammocenter.vcss_c`, in `pak01_463.vpk` at byte
+73,694,528, length 60,245. Its original SHA256 is
+`080e80a8559ff5e66c2bed167cf4529765094dd455b1f4d4c30d1f4aa233463d`.
+No dedicated strip-off console command was established by the current native
+string inspection.
+
+The first [`hud_override.py`](../tools/renderer/hud_override.py) candidate was
+`spectator-strip-private-css-v1`. Before the protected replay search path was
+activated, it stages a modified compiled stylesheet only under that run's
+`csgo/chicken-render-<run-id>/panorama/styles/hud/` directory. The outer worker
+owns the process and gameinfo/settings leases and archives this directory after
+exit. The helper rejects another source hash, another VPK entry, an unowned
+destination, reparse points, and an existing destination. It never edits an
+installed archive or normal configuration.
+
+The change replaces only the strip panel's 25-byte `world-blur: hudWorldBlur;`
+declaration at file offset 26,562 with `opacity: 0;` and padding. The panel's
+existing blur is thereby removed with its opacity. Other CSS rules and compiled
+block offsets remain byte-identical. The DATA checksum field at offset 1,872 is
+updated. Reversing these two edits must recover every original byte.
+
+The original stored DATA CRC is `54d85505`, while its minified text has CRC
+`a937624b`. This known source mismatch is verified explicitly. The primary
+[ValveResourceFormat Panorama reader](https://github.com/ValveResourceFormat/ValveResourceFormat/blob/master/ValveResourceFormat/Resource/ResourceTypes/Panorama.cs)
+documents that minified styles containing a `SrMa` source-map block can have
+this mismatch. The candidate instead stores its recomputed text CRC
+`5ec18bc8`. Its full compiled SHA256 is
+`9d49df1dad91771953a22767cfcdfa7d3392742179be43719e3849dc8b8a47a5`.
+
+The actual installed source passed the pure resource transformation and
+round-trip checks; 23 fixture tests cover resource checksums, malformed blocks,
+ambiguous selectors, unchanged unrelated CSS, isolated staging and refusal to
+overwrite. The subsequent protected `windows-competitive-current-001` render
+failed the visual goal: all four inspected raw-frame previews still showed the
+name, avatar and weapon strip. Its staged file matched the expected hash, and
+its process/plugin logs contained no stylesheet or resource error. Staging
+therefore did not establish that Panorama consumed or honored the override.
+This historical output remains unchanged.
+
+Candidate `spectator-strip-private-css-v2` retained the pinned source and added
+three narrow edits: zero opacity for the separate spectator avatar, and
+`visibility:collapse;` in both rules that previously made spectator panels
+visible. The four declaration regions remain exactly the original lengths;
+undoing these changes and the DATA CRC restores the entire original resource.
+Own health/ammo rules and every other resource byte remain unchanged.
+
+The installed compiled layout, `hudhealthammocenter.vxml_c` (SHA256
+`a5877c66b6fb9a2dac852f89ec854be0b4dc8527a1f04f8978e247cd8c5a34cb`),
+was independently decoded using the layout of the primary
+[ValveResourceFormat binary KV3 reader](https://github.com/ValveResourceFormat/ValveResourceFormat/blob/master/ValveResourceFormat/Resource/ResourceTypes/BinaryKV3.cs).
+All type, object-length and value streams were consumed. The resulting layout
+confirms that `jsHudSpecplayer__Bg` contains the name, team logo and weapon name,
+while the avatar is a separate panel. This establishes the selector scope; it
+does not establish runtime style precedence.
+
+That helper also created a one-entry inline VPK v2 archive at the unique
+mod's `pak01_dir.vpk`, containing the identical modified stylesheet. The loose
+file remains for direct inspection. The archive tree, file range and entry CRC
+must round-trip to the exact patched bytes; it contains no unrelated assets.
+Both files are archived with `renderer-sandbox` and removed by the existing
+mod lease after CS2 exits. No normal archive or resource is replaced.
+
+| Candidate v2 evidence | Value |
+| --- | --- |
+| Modified compiled stylesheet SHA256 | `3c29e34ae294676cb9d9e7dd8c6ec675484db72171020d9dfe60d3abaa110721` |
+| Modified DATA CRC32 | `e249fadd` |
+| Private VPK SHA256 | `7ff5ab5f9bb367c46dfb82186103698d229100e326b31860cb8fdfea35e4cca4` |
+| Private VPK size | 60,341 bytes |
+| Fixture checks | 34 helper tests; 48 including the existing worker tests |
+
+The protected `windows-competitive-current-002` attempt exited with code 1
+before the plugin loaded. Its minidump identifies a filesystem fatal error
+reporting private `pak01.vpk` as unexpected. The initial inference that its
+inline payload caused a failed file open was incorrect: candidate v3 below
+failed at the same manifest identity check. Separately, v2 omitted the
+48-byte internal MD5 footer emitted by the primary
+[ValvePak v2 writer](https://github.com/ValveResourceFormat/ValvePak/blob/master/ValvePak/ValvePak/Package.Save.cs).
+The staged package remains archived as failed evidence; it produced no frames.
+
+Candidate `spectator-strip-private-css-v3` used the same four CSS
+changes with the standard external-chunk layout: a 172-byte `pak01_dir.vpk`
+referenced a 60,245-byte `pak01_000.vpk`. Its 28-byte chunk MD5 section and
+48-byte tree/section/whole-file MD5
+footer are independently recomputed during staging. Directory SHA256 is
+`22042d692b0ed6e2e7210cd18a1e914af4aab05bb0e8d9e45140f1e8dd4f8ec7`;
+the chunk's SHA is the unchanged candidate-v2 stylesheet hash above. The helper
+refuses any existing loose file, directory archive or chunk before it writes.
+All three files remain inside the owned mod lease. There are 36 helper tests,
+or 50 including the worker tests.
+
+The `windows-competitive-current-003` attempt also exited before plugin load.
+An independent byte inspection confirmed its header, one-entry tree, resource
+CRC and every MD5 checksum matched the standard writer layout. Disassembly of
+the pinned `filesystem_stdio.dll` established the actual failure: RVA `51D50`
+looks up an archive basename in a manifest table. The known `pak01` name has
+no expected entry for the private mod directory; with a non-null loaded archive,
+the branch at `51F14` reaches the `unexpected` error at `51F71`. The dump's
+`51F80` return address confirms that branch. The displayed `pak01.vpk` name was
+not evidence of a failed file-open syscall.
+
+The current candidate, `spectator-strip-private-css-v4`, retains the independently
+verified v3 bytes and uses a custom basename: `pakchicken_hud_dir.vpk` and
+`pakchicken_hud_000.vpk`.
+The loader's absent-name branch permits custom names that do not match its
+reserved `pak` plus two digits form (`51DDF` through `51F54`). No manifest,
+signature check or installed archive is changed. The profile identifier changes
+with the delivery policy so this attempt receives a distinct renderer identity.
+
+The protected `windows-competitive-current-004` run completed 160 frames, but
+the strip remained visible. Its native `competitive_resource_paths` record
+showed the custom archive absent from both `GAME` and `MOD` search paths. The
+stylesheet resolved to the official `csgo/pak01.vpk` archive. Automatic discovery
+therefore did not mount this custom basename; merely staging the archive did
+not establish resource delivery.
+
+The protected `windows-competitive-current-005` attempt explicitly mounted
+`pakchicken_hud_dir.vpk` under both `Game` and `Mod`. Its retained minidump
+confirms that both search paths contained the private archive, but startup
+failed when its resource read derived the nonexistent chunk filename
+`pakchicken_hud_dir_000.vpk`. It produced no frames. This is a path-normalization
+error distinct from the reserved-name failures in 002 and 003.
+
+The corrected delivery policy explicitly mounts the private archive under both
+`Game` and `Mod` before startup, through the worker's journaled gameinfo lease.
+The logical path is `csgo/chicken-render-<run-id>/pakchicken_hud.vpk`;
+the files on disk retain their `_dir.vpk` and `_000.vpk` names. In the pinned
+filesystem DLL (SHA256
+`a68eb1d28191b3f5d68989198b06b1842dd5dfc54ae098532a75bfc37c83f7ef`),
+`AddSearchPath` at `53770` reaches the `.vpk` extension check at `5F78B`.
+The packed-store constructor calls imported `CBufferString::StripExtension`
+at `122EAA`, appends `_dir.vpk` at `122EE0`–`122F20`, then opens that directory
+archive at `122F56`. The logical base name therefore selects our actual
+directory archive without relying on automatic discovery. This mount policy
+has its own renderer-profile identity; the staged resource bytes remain the
+same. The first `Game` entry remains the real owned directory for plugin and
+default-write resolution; the explicit archive still precedes official asset
+archives in the resource search order.
+
+The protected `windows-competitive-current-006` run succeeded with this
+`competitive-hud-archive-search-v2` policy: 160 original 1280×720 TGA frames at
+32 FPS for Dust2/Ckanic, requested demo ticks 6000–6320. Both native `GAME` and
+`MOD` diagnostics resolve the stylesheet to the owned `pakchicken_hud.vpk`.
+The private directory archive and stylesheet/chunk match the hashes above.
+The rendered clip ID is `5bd48c3f844705d469748840`, with renderer-profile SHA256
+`1c49aa8a85a8e692247ba3ab22931e53813a88d945655fb8efcaf6d37e47a6ee`.
+
+An independent review of all 40 frames numbered 40–79, using
+`data/validation/dust2-hud-006-v1/contact-06.png` through `contact-10.png`,
+confirms the spectator name/avatar/weapon strip is absent throughout this
+partition. Player health/armor, money, ammo, radar, crosshair, round timer/team
+counter and viewmodel remain. The shot, ammunition change from 20 to 19,
+muzzle flash and ejected casing are visible without scene corruption. The
+right-side player weapon inventory label remains intentionally. The full
+160-frame review is recorded separately with the pilot's validation artifacts.
+The current helper plus worker unit tests pass all 55 checks.
+
+This result is scoped to this pilot and the pinned build, stylesheet and HUD
+configuration. Native filesystem resolution alone does not prove Panorama's
+applied style; the image review supplies that separate evidence. The staging
+helper and immutable render manifest retain their pre-review resource-load and
+rendered-HUD flags as false. No encoder mask is used, and HUD cleanup alone
+grants no timing or training approval. Recheck other maps, player states,
+resolutions or asset versions before extending the visual claim.
