@@ -2,6 +2,51 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-08 - Named player selection and resilient batch display
+
+Continued the desktop launcher's recorded stopping point with **Load players**
+and **Player POV** controls. Rosters come from prepared source names and Steam
+IDs; plans pass the exact chosen ID through the collection/discovery CLIs.
+Player filtering precedes bounded ordinary/action sampling, with explicit scope
+provenance and no fallback when the player lacks eligible clips. Changed demo
+selections invalidate the roster, including results still loading in the worker.
+
+Hardened batch display before Tk mutations, retained selected rows on refresh,
+and bound review links to the current completed capture-journal attempt and
+page checksum. Invalid plans, malformed summaries, changed review pages and
+unjournaled attempt folders have regression coverage.
+
+**136 backend/collection/batch tests and 20 real Tk tests pass.** Real GUI input
+loaded Dust2's recorded roster and selected Ckanic. The actual planner/clock
+tools produced four ten-second clips across rounds 7, 16, 18 and 23 (two ordinary,
+two reload hints) in about 85 seconds. The source tables were reused and exact
+player identity was checked in every job. Both the player-selection screen and
+completed batch were inspected. Evidence: [desktop-app-002](../../data/validation/desktop-app-002/).
+No CS2 capture, additional accepted training data or model training ran. The
+full-player queue and a new capture initiated through the GUI remain unfinished.
+
+## 2026-09-08 - Desktop demo launcher
+
+Added `Launch Demo Processor.cmd`, a Tk desktop interface and separate background
+orchestration. Users can choose demo/output folders, prepare up to eight sources,
+plan bounded sample captures, inspect existing batches and run/resume one clip.
+The UI retains full activity logs, remembers options/last run, reports source
+quality issues and pending review, and prevents a second launcher for the project.
+Stop/close waits for the current producer or protected batch invocation.
+
+Verified 19 launcher backend tests, six real Windows Tk UI tests and 39 existing
+collection/batch tests. Actual Dust2 preparation reused hashed source tables and
+produced one ten-second plan using the real planner and clock executable.
+Screenshots verified the demo list, recorded batch status and visible stop/status
+controls. No live game capture or model training ran during this milestone.
+The GUI capture callback uses the existing protected runner; a new live capture
+through the GUI remains untested.
+
+See [the app guide](../DESKTOP_APP.md) and the retained
+[`desktop-app-001` evidence](../../data/validation/desktop-app-001/).
+The proposed full-player scheduler, manual player selection, multiple game
+instances and automatic visual acceptance are not implemented by this launcher.
+
 ## 2026-09-08 - Action coverage and collection throughput
 
 Implemented balanced competitive action discovery, automatic selected clock

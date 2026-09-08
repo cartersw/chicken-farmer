@@ -62,7 +62,7 @@ def _clock(source, selected, out, executable):
     return windows
 
 
-def _reuse_discovery(path, source, clip_ticks):
+def _reuse_discovery(path, source, clip_ticks, steam_id=None):
     report = read_json(path)
     _require(report.get("profile") == coverage.PROFILE and report.get("status") == "complete" and
              report.get("training_ready") is False and report.get("demo_id") == source["demo_id"] and
@@ -82,16 +82,28 @@ def _reuse_discovery(path, source, clip_ticks):
     batch._verify_hashes(report["source_files"])
     body = {key: value for key, value in report.items() if key != "report_sha256"}
     _require(coverage._digest(body) == report.get("report_sha256"), "Discovery report checksum differs")
+    configuration = report["configuration"]
+    scope = "specific_player" if steam_id is not None else "all_players"
+    _require(configuration.get("steam_id") == steam_id and
+             configuration.get("selection_scope", "all_players") == scope,
+             "Discovery player scope differs; run fresh discovery for the requested player selection")
+    if steam_id is not None:
+        _require(all(str(row.get("steam_id")) == steam_id for row in report["candidate_pool"]),
+                 "Discovery pool contains players outside its declared selection scope")
     return report
 
 
 def prepare_collection(sources_manifest: Path, out: Path, *, clip_ticks=640, max_jobs=4,
-                       ordinary_fraction=0.5, reuse_discovery: Path | None = None):
+                       ordinary_fraction=0.5, reuse_discovery: Path | None = None,
+                       steam_id: str | None = None):
+    steam_id = coverage.normalize_steam_id(steam_id)
     _require(type(clip_ticks) is int and 32 <= clip_ticks <= batch.MAX_CLIP_TICKS and clip_ticks % 2 == 0,
              "Collection needs even32..1280 ticks per clip")
     _require(type(max_jobs) is int and 1 <= max_jobs <= batch.MAX_SELECTIONS,
              "Collection needs1..16 clips")
     coverage.choose_candidates([], max_clips=max_jobs, ordinary_fraction=ordinary_fraction)
+    configuration = {"clip_ticks": clip_ticks, "max_jobs": max_jobs, "ordinary_fraction": ordinary_fraction,
+        "steam_id": steam_id, "selection_scope": "specific_player" if steam_id is not None else "all_players"}
     sources_manifest, out = Path(sources_manifest).resolve(), Path(out).resolve()
     _require(not out.exists(), "Collection preparation requires a fresh output directory")
     inputs = read_json(sources_manifest)
@@ -133,19 +145,27 @@ def prepare_collection(sources_manifest: Path, out: Path, *, clip_ticks=640, max
         if reuse_discovery is None:
             report = coverage.discover_candidates(Path(source["parsed"]), Path(source["demo"]),
                 Path(source["phase_manifest"]), report_path, clip_ticks=clip_ticks,
-                max_clips=max_jobs, ordinary_fraction=ordinary_fraction)
+                max_clips=max_jobs, ordinary_fraction=ordinary_fraction, steam_id=steam_id)
         else:
             retained = Path(reuse_discovery).resolve()/(source["source_id"]+".json")
-            report = _reuse_discovery(retained, source, clip_ticks)
+            report = _reuse_discovery(retained, source, clip_ticks, steam_id)
             batch._watch(watched, retained)
             write_json(report_path, report)
         for filename, expected in report["source_files"].items():
             batch._watch(watched, filename, expected)
         batch._watch(watched, report_path)
         reports[source["source_id"]] = str(report_path)
-        pool.extend(report["candidate_pool"])
+        pool.extend(row for row in report["candidate_pool"] if steam_id is None or str(row.get("steam_id")) == steam_id)
     selected = coverage.choose_candidates(pool, max_clips=max_jobs, ordinary_fraction=ordinary_fraction)
-    _require(selected, "No competitive candidates with sufficient command coverage")
+    if not selected:
+        message = "No competitive candidates with sufficient command coverage"
+        if steam_id is not None:
+            message += " for Steam ID "+steam_id
+        write_json(out/"collection_failure.json", {"schema_version": 1, "profile": PROFILE, "status": "failed",
+            "failure_stage": "selection", "error": message, "sources_manifest": str(sources_manifest),
+            "configuration": configuration, "source_files": watched, "discovery_reports": reports,
+            "selected": [], "training_ready": False})
+        raise ValueError(message)
     clock_dir = out/"clocks"; clock_dir.mkdir()
     batch_sources, clock_metadata = [], []
     for source in sources:
@@ -168,7 +188,7 @@ def prepare_collection(sources_manifest: Path, out: Path, *, clip_ticks=640, max
     batch._verify_hashes(watched)
     result = {"schema_version": 1, "profile": PROFILE, "status": "planned_not_rendered",
         "sources_manifest": str(sources_manifest), "source_files": watched, "discovery_reports": reports,
-        "configuration": {"clip_ticks": clip_ticks, "max_jobs": max_jobs, "ordinary_fraction": ordinary_fraction},
+        "configuration": configuration,
         "selected": selected, "selection_purpose_counts": dict(Counter(r["selection_purpose"] for r in selected)),
         "clock_evidence": clock_metadata, "batch_plan": str(out/"batch/batch_plan.json"),
         "planned_source_seconds": len(selected)*clip_ticks/64,
@@ -188,9 +208,12 @@ def main(argv=None):
     parser.add_argument("--max-jobs", type=int, default=4)
     parser.add_argument("--ordinary-fraction", type=float, default=0.5)
     parser.add_argument("--reuse-discovery", type=Path)
+    parser.add_argument("--steam-id", type=coverage.normalize_steam_id,
+                        help="Select only this player's positive uint64 Steam ID")
     args = parser.parse_args(argv)
     report = prepare_collection(args.sources, args.out, clip_ticks=args.clip_ticks, max_jobs=args.max_jobs,
-                                ordinary_fraction=args.ordinary_fraction, reuse_discovery=args.reuse_discovery)
+                                ordinary_fraction=args.ordinary_fraction, reuse_discovery=args.reuse_discovery,
+                                steam_id=args.steam_id)
     print(json.dumps({key: report[key] for key in ("status", "batch_plan", "selection_purpose_counts", "planned_source_seconds")}))
 
 

@@ -29,7 +29,7 @@ def collection_source(sources, monkeypatch, tmp_path):
             "start_demo_tick": 3000, "end_demo_tick": 3000+options["clip_ticks"],
             "command_coverage_within_4_ticks": True, "ordinary_pool_eligible": True,
             "action_hints": {a: int(player == 102) for a in collection.coverage.ACTIONS}}
-            for player in (101, 102)]
+            for player in (101, 102) if options.get("steam_id") in (None, str(player))]
         implementation = Path(collection.coverage.__file__).resolve()
         dependencies = [source_demo, phase_manifest, *(parsed/name for name in
             ("manifest.json", "rounds.parquet", "player_state.parquet", "usercmd.parquet")), implementation,
@@ -37,7 +37,9 @@ def collection_source(sources, monkeypatch, tmp_path):
               ("competitive_buttons", "clock_evidence", "causal_acceptance", "jobs", "io"))]
         report = {"schema_version": 1, "profile": collection.coverage.PROFILE, "status": "complete",
             "demo_id": demo_id, "training_ready": False,
-            "configuration": {"clip_ticks": options["clip_ticks"]}, "candidate_pool": candidates,
+            "configuration": {"clip_ticks": options["clip_ticks"], "steam_id": options.get("steam_id"),
+                "selection_scope": "specific_player" if options.get("steam_id") is not None else "all_players"},
+            "candidate_pool": candidates,
             "inputs": {"parsed": str(parsed), "demo": str(source_demo), "phase_manifest": str(phase_manifest)},
             "source_files": {str(p): collection.sha256_file(p) for p in dependencies}}
         report["report_sha256"] = collection.coverage._digest(report)
@@ -62,6 +64,8 @@ def test_collection_prepares_exact_selected_mixture_and_merged_clocks(collection
     assert report["status"] == "planned_not_rendered" and report["training_ready"] is False
     assert len(report["selected"]) == 4 and report["selection_purpose_counts"]["ordinary"] == 2
     assert report["planned_source_seconds"] == 40
+    assert report["configuration"]["steam_id"] is None
+    assert report["configuration"]["selection_scope"] == "all_players"
     assert len(fixture["discoveries"]) == len(fixture["clocks"]) == 2
     for source, selected, windows in fixture["clocks"]:
         assert len(selected) == 2 and windows == [{"start_demo_tick": 2968, "end_demo_tick": 3672}]
@@ -69,6 +73,96 @@ def test_collection_prepares_exact_selected_mixture_and_merged_clocks(collection
     retained = collection.batch.load_batch_plan(Path(report["batch_plan"]))[1]
     assert len(retained["jobs"]) == 4
     assert all(job["job"]["end_demo_tick"]-job["job"]["start_demo_tick"] == 640 for job in retained["jobs"])
+
+
+def test_specific_player_is_filtered_before_selection_clocks_and_batch(collection_source, monkeypatch):
+    fixture = collection_source
+    discover = collection.coverage.discover_candidates
+    choose = collection.coverage.choose_candidates
+    selected_pools = []
+
+    def mixed_pool(*args, **kwargs):
+        report = discover(*args, **kwargs)
+        other = {**report["candidate_pool"][0], "candidate_id": report["demo_id"]+"-other", "steam_id": "102"}
+        report["candidate_pool"].append(other)
+        return report
+
+    def inspect_pool(pool, **kwargs):
+        selected_pools.append(deepcopy(pool))
+        return choose(pool, **kwargs)
+
+    monkeypatch.setattr(collection.coverage, "discover_candidates", mixed_pool)
+    monkeypatch.setattr(collection.coverage, "choose_candidates", inspect_pool)
+    report = collection.prepare_collection(fixture["source_path"], fixture["collection_out"], steam_id="00101")
+    assert report["configuration"]["steam_id"] == "101"
+    assert report["configuration"]["selection_scope"] == "specific_player"
+    assert len(report["selected"]) == 2 and {row["steam_id"] for row in report["selected"]} == {"101"}
+    assert all(row["steam_id"] == "101" for pool in selected_pools for row in pool)
+    assert all(options["steam_id"] == "101" for _, options in fixture["discoveries"])
+    assert all(row["steam_id"] == "101" for _, selected, _ in fixture["clocks"] for row in selected)
+    retained = collection.batch.load_batch_plan(Path(report["batch_plan"]))[1]
+    assert {str(job["job"]["steam_id"]) for job in retained["jobs"]} == {"101"}
+    assert collection.read_json(fixture["collection_out"]/"collection_plan.json")["configuration"] == report["configuration"]
+
+
+@pytest.mark.parametrize("steam_id", ["", "0", "-1", "18446744073709551616", "1.0", "1e2", " 101", "１０１", 101, True])
+def test_invalid_player_identity_rejected_before_any_source_work(collection_source, steam_id):
+    fixture = collection_source
+    with pytest.raises(ValueError, match="positive uint64"):
+        collection.prepare_collection(fixture["source_path"], fixture["collection_out"], steam_id=steam_id)
+    assert not fixture["discoveries"] and not fixture["clocks"] and not fixture["collection_out"].exists()
+
+
+def test_absent_player_retains_failed_discovery_without_clocks_or_batch(collection_source):
+    fixture = collection_source
+    with pytest.raises(ValueError, match="No competitive candidates.*Steam ID 999"):
+        collection.prepare_collection(fixture["source_path"], fixture["collection_out"], steam_id="999")
+    assert len(fixture["discoveries"]) == 2 and not fixture["clocks"]
+    assert not (fixture["collection_out"]/"clocks").exists()
+    assert not (fixture["collection_out"]/"batch").exists()
+    assert not (fixture["collection_out"]/"collection_plan.json").exists()
+    evidence = collection.read_json(fixture["collection_out"]/"collection_failure.json")
+    assert evidence["status"] == "failed" and evidence["training_ready"] is False
+    assert evidence["configuration"]["steam_id"] == "999" and evidence["selected"] == []
+    assert len(evidence["discovery_reports"]) == 2
+    assert all(Path(path).is_file() for path in evidence["discovery_reports"].values())
+
+
+def test_matching_player_discovery_can_be_reused(collection_source):
+    fixture = collection_source
+    first = collection.prepare_collection(fixture["source_path"], fixture["collection_out"], steam_id="101")
+    second = collection.prepare_collection(fixture["source_path"], fixture["collection_out"].with_name("reused"),
+        steam_id="101", reuse_discovery=fixture["collection_out"]/"discovery")
+    assert second["selected"] == first["selected"] and len(fixture["discoveries"]) == 2
+
+
+@pytest.mark.parametrize("original_player,requested_player", [(None, "101"), ("101", "102"), ("101", None)])
+def test_reused_bounded_discovery_must_match_player_scope(collection_source, original_player, requested_player):
+    fixture = collection_source
+    collection.prepare_collection(fixture["source_path"], fixture["collection_out"], steam_id=original_player)
+    clock_count = len(fixture["clocks"])
+    out = fixture["collection_out"].with_name("wrong-scope")
+    with pytest.raises(ValueError, match="player scope differs.*fresh discovery"):
+        collection.prepare_collection(fixture["source_path"], out, steam_id=requested_player,
+            reuse_discovery=fixture["collection_out"]/"discovery")
+    assert len(fixture["clocks"]) == clock_count and not (out/"clocks").exists()
+
+
+def test_collection_cli_forwards_normalized_player_and_policy(monkeypatch, capsys):
+    calls = []
+    def prepare(*args, **kwargs):
+        calls.append((args, kwargs))
+        return {"status": "planned_not_rendered", "batch_plan": "batch.json",
+            "selection_purpose_counts": {"ordinary": 1}, "planned_source_seconds": 10}
+    monkeypatch.setattr(collection, "prepare_collection", prepare)
+    collection.main(["--sources", "sources.json", "--out", "output", "--steam-id", "00101",
+        "--max-jobs", "2", "--clip-ticks", "320", "--ordinary-fraction", "0.75"])
+    assert calls == [((Path("sources.json"), Path("output")), {"steam_id": "101", "max_jobs": 2,
+        "clip_ticks": 320, "ordinary_fraction": 0.75, "reuse_discovery": None})]
+    assert json.loads(capsys.readouterr().out)["status"] == "planned_not_rendered"
+    with pytest.raises(SystemExit) as error:
+        collection.main(["--sources", "sources.json", "--out", "output", "--steam-id", "0"])
+    assert error.value.code == 2 and len(calls) == 1
 
 
 def test_reused_discovery_checks_source_and_checksum(collection_source):

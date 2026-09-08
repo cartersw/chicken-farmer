@@ -1,6 +1,44 @@
 # Current implementation status
 
-**Latest work (2026-09-08): action coverage and collection throughput.**
+**Latest work (2026-09-08): desktop player selection and batch/review recovery.**
+The [desktop app](../DESKTOP_APP.md) now loads recorded player names and Steam
+IDs from the selected demos and plans sample captures for that exact player.
+The scope resets when demos/output change; late roster results cannot apply to
+a different selection. Discovery filters before bounded sampling, records the
+player scope, and fails without substitution if no eligible clips exist.
+Invalid batch files leave the loaded batch intact, malformed summaries cannot
+break UI polling, and review links use the current completed journal attempt
+with a checked page checksum. Refresh preserves the selected clip.
+
+**Verified:** 136 backend/collection/batch tests and 20 real Windows Tk tests
+pass. A real GUI session loaded Dust2's 12 recorded roster entries, selected
+**Ckanic (`76561198323592528`)**, and produced four ten-second plans for rounds
+7, 16, 18 and 23: two ordinary and two reload examples. The real planner and
+clock tools finished in about 85 seconds, with existing hashed source data reused.
+The player controls and resulting batch were visually inspected. Evidence is in
+[`desktop-app-002`](../../data/validation/desktop-app-002/); the real plan remains
+under `data/desktop/runs/20260908-103707-plan-fa4bb6d6/collection/batch/`.
+No capture or model training was started. Live GUI capture, parallel instances
+and the exhaustive full-player queue remain unfinished.
+
+**Previous work: desktop demo launcher.**
+The [desktop app](../DESKTOP_APP.md) adds a double-click Windows launch file,
+remembered demo/output folders, background source preparation, bounded clip
+planning, live logs and one-clip protected run/resume controls. It preserves
+quality failures and pending visual review, checks retained source tables before
+reuse, and waits for the current process on stop/close. One UI owns the project
+at a time. Player selection was added in the follow-up above; multiple instances
+and the complete-player queue remain future work.
+
+Validation covers 19 launcher backend tests, six real Tk interface tests and
+39 existing collection/batch regressions. A real Dust2 smoke run reused canonical
+source data and produced one ten-second plan without launching CS2. The app
+also displayed all three supplied demos and the existing four-job batch; both
+screens were inspected. Evidence is in
+[`data/validation/desktop-app-001/`](../../data/validation/desktop-app-001/).
+No new frames, accepted samples or model training were produced by this work.
+
+**Previous milestone: action coverage and collection throughput.**
 Four protected ten-second captures produced 1,280 reviewed frames and 1,236
 accepted samples. The refreshed seven-clip corpus has **1,692 accepted /
 68 rejected**, with 3,384 valid angular fields and 125,240 valid button

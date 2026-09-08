@@ -191,6 +191,19 @@ def test_discovery_bound_checked_before_read(tmp_path):
             coverage.discover_candidates(tmp_path, tmp_path/"x.dem", tmp_path/"p", tmp_path/"out", clip_ticks=ticks)
 
 
+@pytest.mark.parametrize("value", ["", "0", "-1", "18446744073709551616", "12.5", " 101", "１０１", 101, True])
+def test_invalid_player_filter_is_rejected_before_discovery_reads(tmp_path, value):
+    with pytest.raises(ValueError, match="positive uint64"):
+        coverage.discover_candidates(tmp_path, tmp_path/"x.dem", tmp_path/"p", tmp_path/"out", steam_id=value)
+    assert not (tmp_path/"out").exists()
+
+
+def test_steam_identity_normalization_preserves_uint64_precision():
+    assert coverage.normalize_steam_id(None) is None
+    assert coverage.normalize_steam_id("00101") == "101"
+    assert coverage.normalize_steam_id("18446744073709551615") == "18446744073709551615"
+
+
 def test_candidate_memory_bound_is_enforced(monkeypatch):
     monkeypatch.setattr(coverage, "MAX_CANDIDATES", 1)
     with pytest.raises(ValueError, match="memory bound"):
@@ -232,12 +245,53 @@ def test_public_discovery_streams_source_and_publishes_only_bound_hints(canonica
     result = coverage.discover_candidates(*canonical_source, out, clip_ticks=32, max_clips=2)
     assert result["candidate_count"] == 2 and result["eligible_candidate_action_counts"]["reload"] == 1
     assert result["training_ready"] is False and result["original_source_reconstruction_verified"] is False
+    assert result["configuration"]["steam_id"] is None and result["configuration"]["selection_scope"] == "all_players"
     assert result["selected"][0]["selection_purpose"] == "ordinary"
     assert all(type(c["ordinary_pool_eligible"]) is bool for c in result["candidate_pool"])
     assert all(coverage.sha256_file(Path(p)) == h for p, h in result["source_files"].items())
     assert json.loads(out.read_text())["report_sha256"] == result["report_sha256"]
     with pytest.raises(ValueError, match="fresh output"):
         coverage.discover_candidates(*canonical_source, out, clip_ticks=32)
+
+
+def test_specific_player_filter_precedes_candidate_bounds_and_ordinary_pool(canonical_source, tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    parsed = canonical_source[0]
+    manifest_path = parsed/"manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for name in ("player_state.parquet", "usercmd.parquet"):
+        values = pq.read_table(parsed/name).to_pylist()
+        others = [{**row, "steam_id": 102, "player_slot": 1} for row in values]
+        pq.write_table(pa.Table.from_pylist([*values, *others]), parsed/name)
+        manifest["files"][name] = coverage.sha256_file(parsed/name)
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(coverage, "MAX_CANDIDATES", 2)
+    monkeypatch.setattr(coverage, "MAX_POOL", 1)
+    choose = coverage.choose_candidates
+    pools = []
+    def inspect_pool(candidates, **options):
+        pools.append(deepcopy(candidates))
+        return choose(candidates, **options)
+    monkeypatch.setattr(coverage, "choose_candidates", inspect_pool)
+    result = coverage.discover_candidates(*canonical_source, tmp_path/"player.json",
+        clip_ticks=32, max_clips=1, steam_id="102")
+    assert result["candidate_count"] == 2
+    assert result["configuration"]["steam_id"] == "102"
+    assert result["configuration"]["selection_scope"] == "specific_player"
+    assert all(c["steam_id"] == "102" for pool in pools for c in pool)
+    assert result["selected"][0]["selection_purpose"] == "ordinary"
+    assert result["candidate_pool"][0]["ordinary_pool_eligible"] is True
+    assert result["candidate_pool"][0]["steam_id"] == "102"
+    with pytest.raises(ValueError, match="candidate memory bound"):
+        coverage.discover_candidates(*canonical_source, tmp_path/"all.json", clip_ticks=32, max_clips=1)
+
+
+def test_absent_player_discovery_records_empty_scope_without_fallback(canonical_source, tmp_path):
+    result = coverage.discover_candidates(*canonical_source, tmp_path/"absent.json", clip_ticks=32, steam_id="999")
+    assert result["candidate_count"] == result["eligible_command_coverage_count"] == 0
+    assert result["candidate_pool"] == result["selected"] == result["selections"] == []
+    assert result["configuration"]["steam_id"] == "999" and result["training_ready"] is False
 
 
 def test_public_discovery_detects_source_mutation_during_scan(canonical_source, tmp_path, monkeypatch):

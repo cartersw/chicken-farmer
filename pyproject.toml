@@ -16,5 +16,8 @@ training = ["torch==2.8.0"]
 [project.scripts]
 cs2-data = "cs2_data.cli:main"
 
+[project.gui-scripts]
+cs2-data-ui = "cs2_data.desktop:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

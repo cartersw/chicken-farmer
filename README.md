@@ -2,6 +2,11 @@
 
 Track completed work, current blockers, and the next milestones in [docs/progress](docs/progress/README.md).
 
+**Desktop launcher:** double-click [Launch Demo Processor.cmd](Launch%20Demo%20Processor.cmd)
+to browse demo folders, prepare source data, choose a player POV, plan sample captures and run/resume
+one protected clip at a time. It uses the existing local Python environment.
+See the [desktop app guide](docs/DESKTOP_APP.md) for the workflow and limits.
+
 The [32 Hz executor and scoped label builder](docs/CONTROL_EXECUTION.md)
 connect angular actions to protected Windows keyboard/mouse input. A real
 combined-movement test and source-checked partial label export are documented in

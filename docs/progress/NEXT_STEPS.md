@@ -10,6 +10,23 @@ broader weapon/action coverage, then a small CNN/GRU baseline and masked losses.
 All current clips belong to one BO3; exact within-tick events remain masked.
 No model training has run.
 
+The [desktop launcher](../DESKTOP_APP.md) is implemented: folder selection,
+source preparation, named player selection, bounded planning, live logs and one-clip protected run/resume.
+The UI's preparation/planning route passed a real Dust2 smoke run, followed by
+a named-player GUI run producing four ten-second Ckanic clips across four rounds.
+Its capture
+callback uses the existing runner; a live capture started from the GUI is still
+to be exercised. Parallel instances and the full-player queue remain future extensions.
+Player-scoped discovery filters before bounded sampling and refuses to substitute
+another player. Malformed batch display and stale review-attempt handling are fixed.
+
+The user selected **Ckanic on Dust2** for a full-player feasibility plan.
+See [the measured estimate and proposed setup](FULL_PLAYER_DEMO_PLAN.md):
+exhaustive interval tracking, round-tail/history handling and a total disk/time
+budget are still needed. Start with two complete rounds, then resume the same
+queue through the match after measuring the full pipeline. The whole-demo run
+has not started; automatic visual acceptance is also still proposed.
+
 The approved first turning/button investigation is complete. See
 [turn and button results](TURN_AND_BUTTON_CALIBRATION.md): continuous turns
 support a frozen interpolation candidate, while rapid-input confirmation

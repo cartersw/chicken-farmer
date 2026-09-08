@@ -42,6 +42,16 @@ def _require(condition, message):
         raise ValueError(message)
 
 
+def normalize_steam_id(steam_id: str | None) -> str | None:
+    """Validate an optional decimal player identity before reading any source."""
+    if steam_id is None:
+        return None
+    _require(isinstance(steam_id, str) and 1 <= len(steam_id) <= 20 and
+             steam_id.isascii() and steam_id.isdecimal() and 0 < int(steam_id) < 2**64,
+             "Steam ID must be a positive uint64 decimal string")
+    return str(int(steam_id))
+
+
 def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
@@ -63,7 +73,7 @@ def _speed(row):
     return math.hypot(*values) if all(type(v) in (int, float) and math.isfinite(v) for v in values) else None
 
 
-def _state_windows(states, rounds, phases, demo_id, clip_ticks):
+def _state_windows(states, rounds, phases, demo_id, clip_ticks, *, steam_id=None):
     """One active chunk per slot, plus a strictly bounded candidate index."""
     active, previous_ticks, result = {}, {}, []
     for row in states:
@@ -79,6 +89,7 @@ def _state_windows(states, rounds, phases, demo_id, clip_ticks):
             type(freeze) is int and type(end) is int and max(199, freeze) <= tick < end and
             row.get("alive") is True and row.get("is_warmup") is False and row.get("is_freeze_time") is False and
             row.get("is_paused") is False and type(row.get("steam_id")) is int and 0 < row["steam_id"] < 2**64 and
+            (steam_id is None or str(row["steam_id"]) == steam_id) and
             type(row.get("spectator_user_id")) is int and 0 <= row["spectator_user_id"] <= 255)
         current = active.get(slot)
         if current is not None and (not valid or tick != current["last_tick"]+1 or _identity(row) != current["identity"]):
@@ -281,7 +292,9 @@ def source_selections(candidates):
              "round_id": c["round_id"], "steam_id": int(c["steam_id"])} for c in candidates]
 
 
-def discover_candidates(parsed, source_demo, phase_manifest, out, *, clip_ticks=320, max_clips=8, ordinary_fraction=0.5):
+def discover_candidates(parsed, source_demo, phase_manifest, out, *, clip_ticks=320, max_clips=8,
+                        ordinary_fraction=0.5, steam_id: str | None = None):
+    steam_id = normalize_steam_id(steam_id)
     _require(type(clip_ticks) is int and 32 <= clip_ticks <= 1280 and clip_ticks % 2 == 0, "Clips require an even 32..1280 ticks")
     _require(type(max_clips) is int and 1 <= max_clips <= 16, "One source permits 1..16 selections")
     # Validate policy before the expensive source reads.
@@ -304,7 +317,8 @@ def discover_candidates(parsed, source_demo, phase_manifest, out, *, clip_ticks=
     rounds = {r["round_id"]: r for r in round_rows}
     _require(len(rounds) == len(round_rows), "Duplicate canonical rounds")
     phases = phase_evidence(phase_manifest, manifest, rounds)
-    candidates = _state_windows(_rows(parsed/"player_state.parquet", STATE_FIELDS), rounds, phases, manifest["demo_id"], clip_ticks)
+    candidates = _state_windows(_rows(parsed/"player_state.parquet", STATE_FIELDS), rounds, phases,
+                                manifest["demo_id"], clip_ticks, steam_id=steam_id)
     _annotate_commands(candidates, _rows(parsed/"usercmd.parquet", COMMAND_FIELDS), manifest["demo_id"])
     selected = choose_candidates(candidates, max_clips=max_clips, ordinary_fraction=ordinary_fraction)
     # A bounded pool permits cross-map selection without writing every full-match window.
@@ -316,6 +330,7 @@ def discover_candidates(parsed, source_demo, phase_manifest, out, *, clip_ticks=
     report = {"schema_version": 1, "profile": PROFILE, "status": "complete", "demo_id": manifest["demo_id"],
         "inputs": {"parsed": str(parsed), "demo": str(source_demo), "phase_manifest": str(phase_manifest)},
         "source_files": files, "configuration": {"clip_ticks": clip_ticks, "max_clips": max_clips,
+            "steam_id": steam_id, "selection_scope": "specific_player" if steam_id is not None else "all_players",
             "ordinary_fraction": ordinary_fraction, "sustained_attack_minimum_commands": 8, "maximum_command_gap_ticks": 4,
             "action_hint_excluded_initial_demo_ticks": 20},
         "candidate_count": len(candidates), "eligible_command_coverage_count": sum(c["command_coverage_within_4_ticks"] for c in candidates),
@@ -409,13 +424,15 @@ def main(argv=None):
     discover.add_argument("--clip-ticks", type=int, default=320)
     discover.add_argument("--max-clips", type=int, default=8)
     discover.add_argument("--ordinary-fraction", type=float, default=0.5)
+    discover.add_argument("--steam-id", type=normalize_steam_id, help="Select only this player's positive uint64 Steam ID")
     coverage = commands.add_parser("accepted")
     coverage.add_argument("--acceptance", action="append", type=Path, required=True)
     coverage.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "discover":
         report = discover_candidates(args.parsed, args.demo, args.phase_manifest, args.out,
-            clip_ticks=args.clip_ticks, max_clips=args.max_clips, ordinary_fraction=args.ordinary_fraction)
+            clip_ticks=args.clip_ticks, max_clips=args.max_clips, ordinary_fraction=args.ordinary_fraction,
+            steam_id=args.steam_id)
         print(json.dumps({"out": str(args.out), "candidates": report["candidate_count"], "actions": report["eligible_candidate_action_counts"], "selections": report["selections"]}))
     else:
         report = accepted_action_coverage(args.acceptance, args.out)

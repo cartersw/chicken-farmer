@@ -59,6 +59,17 @@ report checksum, source identity, clip length and ordinary-pool marker first.
 Discovery is scheduling evidence only; a stored report cannot approve labels.
 Changes to discovery code or its dependencies require fresh discovery.
 
+Add `--steam-id 76561198323592528` to collect samples only for Ckanic, or supply
+another recorded player's positive uint64 ID. This option is also available on
+`competitive_coverage discover`. The filter applies before bounded candidate
+sampling, so the ordinary/action mix is selected within that player's footage.
+Discovery and collection reports record the exact ID and selection scope. A
+reused discovery report must have the same player scope; generate fresh discovery
+when changing it. With no eligible clips, collection retains discovery and
+`collection_failure.json` and stops before clock extraction or batch creation.
+Omitting the option retains automatic selection across players. The
+[desktop app](DESKTOP_APP.md) provides the same choice by recorded player name.
+
 The collection supports 1-8 sources and 1-16 selected clips. Clip lengths must
 be even 32-1280 ticks (0.5-20 seconds at 64 Hz). The ordinary share is 0.25-1;
 the default is 0.5. Each source's selected clock windows are merged with a
