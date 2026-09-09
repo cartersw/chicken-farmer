@@ -91,3 +91,15 @@ def test_player_controls_fit_minimum_window(ui):
         assert widget.winfo_ismapped() and widget.winfo_height() >= 20
         assert widget.winfo_rooty() + widget.winfo_height() <= ui.root.winfo_rooty() + ui.root.winfo_height()
     ui.root.withdraw()
+
+
+def test_unique_player_names_stay_short_and_keep_exact_id(ui, monkeypatch):
+    populate(ui)
+    monkeypatch.setattr(backend, "load_players", lambda *args: [
+        {"steam_id": "76561198323592528", "name": "Ckanic", "demo_count": 1},
+    ])
+    ui.load_players()
+    pump(ui.root, lambda: not ui.busy)
+    assert ui.players == {"Ckanic": "76561198323592528"}
+    ui.player.set("Ckanic")
+    assert ui.enqueue_button.instate(["!disabled"])

@@ -136,7 +136,7 @@ def test_queue_displays_concurrent_counts_and_rejects_invalid_worker_count(ui, m
     backend.save_settings(ui.queue_path(), doc)
     ui.refresh_queue()
     assert "Recording 1/1" in ui.queue_text.get() and "Validating 2/2" in ui.queue_text.get()
-    assert "In progress 3/3" in ui.queue_text.get()
+    assert "Compressing 0/1" in ui.queue_text.get()
     monkeypatch.setattr(full_demo, "run_queue", lambda *a, **k: pytest.fail("Invalid worker count must not start a queue"))
     ui.validation_workers.set("99")
     ui.process_queue()
@@ -344,5 +344,101 @@ def test_queue_displays_capture_phase_before_validation_counts_exist(ui, monkeyp
         'player_name':'Player','status':phase,'pipeline':{'phase':phase,'recorded_segments':2,'total_segments':8}}]})
     ui.refresh_queue()
     assert '2/8 segments captured' in ui.queue_text.get()
-    assert 'validation starts after recording' in ui.queue_text.get()
+    assert ui.queue_text.get().startswith(phase.replace('_', ' ').capitalize())
     assert not ui.test_errors
+
+
+def test_secondary_tools_open_on_demand_and_logs_survive_hiding(ui):
+    assert ui.tabs.tabs() == (str(ui.demos_tab), str(ui.queue_tab))
+    ui._log("A saved diagnostic")
+    ui.tools_menu.invoke("Activity log")
+    ui.root.update()
+    assert ui.tabs.select() == str(ui.activity_tab)
+    assert "A saved diagnostic" in ui.log_widget.get("1.0", "end")
+    ui.tabs.hide(ui.activity_tab)
+    ui._log("A later diagnostic")
+    ui.tools_menu.invoke("Activity log")
+    ui.root.update()
+    assert "A later diagnostic" in ui.log_widget.get("1.0", "end")
+    ui.tools_menu.invoke("Sample captures")
+    ui.root.update()
+    assert ui.tabs.select() == str(ui.capture_tab)
+
+
+def test_settings_preserve_output_workers_and_training_format(ui):
+    from cs2_data import full_demo
+    ui.show_settings()
+    ui.root.update()
+    ui.output.set(str(ui.project / "new-output"))
+    ui.validation_workers.set("4")
+    ui.close_settings()
+    ui.root.update()
+    settings = backend.read_object(ui.settings_path)
+    assert settings["output_folder"] == str(ui.project / "new-output")
+    assert settings["validation_workers"] == "4"
+    assert ui.tabs.tab(ui.settings_tab, "state") == "hidden"
+    assert ui.output_preset.get() == desktop.TRAINING_PRESET
+    assert full_demo.FORMAT["width"] == 640 and full_demo.FORMAT["height"] == 360
+    ui.show_settings()
+    ui.validation_workers.set("9")
+    ui.close_settings()
+    assert ui.tabs.select() == str(ui.settings_tab)
+    assert ui.test_errors and backend.read_object(ui.settings_path)["validation_workers"] == "4"
+
+
+def test_primary_actions_follow_selection_and_queue_refresh_on_tab_change(ui, monkeypatch):
+    from cs2_data import full_demo
+    assert ui.enqueue_button.instate(["disabled"])
+    assert ui.start_queue_button.instate(["disabled"])
+    demo = populate(ui)
+    assert ui.load_players_button.instate(["!disabled"])
+    ui.players = {"Player": "76561198323592528"}
+    ui.player.set("Player")
+    assert ui.enqueue_button.instate(["!disabled"])
+    ui.enqueue_button.invoke()
+    ui.root.update()
+    assert ui.start_queue_button.instate(["!disabled"])
+    doc = full_demo.load_queue(ui.queue_path())
+    assert ui.queue_tree.selection() == (doc["jobs"][0]["id"],)
+    doc["jobs"][0]["status"] = "stopped"
+    backend.save_settings(ui.queue_path(), doc)
+    ui.tabs.select(ui.demos_tab)
+    ui.root.update()
+    ui.tabs.select(ui.queue_tab)
+    ui.root.update()
+    assert ui.start_queue_button.cget("text") == "Resume queue"
+    assert ui.queue_tree.item(doc["jobs"][0]["id"], "values")[2] == "stopped"
+    ui.tabs.select(ui.demos_tab)
+    ui.demo_tree.selection_remove("0")
+    ui.root.update()
+    assert ui.enqueue_button.instate(["disabled"])
+
+
+@pytest.mark.parametrize("tab_name", ["demos_tab", "queue_tab", "settings_tab", "capture_tab", "activity_tab"])
+def test_all_screens_fit_compact_window(ui, tab_name):
+    ui.root.geometry("960x600")
+    ui.root.deiconify()
+    tab = getattr(ui, tab_name)
+    ui._show_tab(tab, tab_name)
+    ui.root.update()
+    right = ui.root.winfo_rootx() + ui.root.winfo_width()
+    bottom = ui.root.winfo_rooty() + ui.root.winfo_height()
+
+    def descendants(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from descendants(child)
+
+    for widget in [ui.stop_button, ui.progress, *descendants(tab)]:
+        if widget.winfo_ismapped():
+            assert widget.winfo_rootx() + widget.winfo_width() <= right, str(widget)
+            assert widget.winfo_rooty() + widget.winfo_height() <= bottom, str(widget)
+    ui.root.withdraw()
+
+
+def test_failed_task_opens_diagnostics_without_hiding_stop(ui):
+    ui._finished({"status": "failed", "kind": "prepare", "error": "Fixture failure"})
+    ui.root.update()
+    assert ui.tabs.select() == str(ui.activity_tab)
+    assert "Fixture failure" in ui.log_widget.get("1.0", "end")
+    assert ui.stop_button.instate(["disabled"])

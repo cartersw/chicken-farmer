@@ -1,184 +1,104 @@
 # Demo Processor desktop app
 
-Double-click **[Launch Demo Processor.cmd](../Launch%20Demo%20Processor.cmd)** in
-the inner repository folder. It opens a local Windows desktop application using
-the existing `.venv`; no additional UI package or web server is required.
-The launcher remembers your folders and options between sessions.
+Open **Chicken Farmer - Demo Processor** from the desktop shortcut, or run
+[Launch Demo Processor.cmd](../Launch%20Demo%20Processor.cmd) in the inner
+repository. The app uses the existing `.venv` and remembers your settings.
 
-From PowerShell, the equivalent is:
+## Process a demo
 
-```powershell
-.venv/Scripts/pythonw.exe "Launch Demo Processor.pyw"
-```
+1. In **Demos**, browse to your demo folder. **Refresh** rescans it; pressing
+   Enter in the folder field does the same.
+2. Select a demo and click **Load players** (or double-click the demo).
+   Missing source data is prepared automatically.
+3. Select a player and click **Add to queue**. Repeat for more demos.
+4. In **Queue**, click **Start queue**, or **Resume queue** for unfinished work.
+5. Select a queued demo and use **View report** for coverage and results.
+   **Open output** opens the queue's output directory.
 
-Run this from the inner folder containing `pyproject.toml`. A future reinstall
-with `pip install -e .` also adds the `cs2-data-ui` GUI entry point; reinstalling
-is not required for the double-click launcher.
+The normal view has only Demos and Queue. Queue status refreshes as processing
+advances and whenever you return to the tab. Completed work is reused on resume.
+The player list shows names, adding Steam IDs only when needed to distinguish
+names. The exact selected Steam ID still determines the recorded perspective.
 
-## Demos
+## Settings and tools
 
-### Process an entire demo for one player
+**Settings** contains the output folder, available disk space, validation worker
+count (1-4), optional series ID, and the subfolder search option. **Done** saves
+settings and closes the tab. Changing Output selects the queue in that folder
+and clears the current player selection. Returning to an earlier output folder
+restores its queue.
 
-1. Select one demo and click **Load players**. Select the named player in
-   **Player POV**. Missing source tables and phase/context data are prepared
-   automatically; current verified tables are reused.
-2. Keep the output preset **640x360, RGB, 8 bits/channel, 32 FPS, lossless
-   compression** and choose the **Output** folder. Histories contain eight
-   consecutive frames. The sample clip count/duration controls do not affect
-   this preset or full-demo coverage.
-3. Click **Queue entire demo**. Repeat for other demo/player entries if needed.
-4. In **Demo queue**, keep **Validation workers** at **2** initially (1-4 are
-   available), then click **Start / resume queue** once. Preprocessing discovers
-   all eligible rounds and estimates whole-session storage. CS2 records the
-   selected player in one session, then closes. Shared evidence is compressed;
-   separate CPU workers validate clips and prepare lossless training shards.
-5. **Open coverage report** shows planned intervals, excluded time, completion,
-   accepted examples, rejected examples and their reason counts.
+Training remains fixed at **640x360, full-color RGB, 8 bits per channel, 32 FPS,
+eight-frame histories, and lossless compression**. The fixed format is displayed
+in Settings without a redundant single-option selector. Rolling decompression
+and trainer prefetch are documented in [TRAINER_DESIGN.md](TRAINER_DESIGN.md).
 
-The queue includes ordinary alive round progression and combat. It excludes
-setup/warmup, freeze time, pauses, dead time and unsupported source intervals.
-Training segments last up to two minutes and stop at eligibility boundaries;
-they are internal work units and require no manual advance or HUD review.
-Overlapping history at internal splits is deduplicated by action target identity.
-CS2 keeps recording across those internal file splits. Native recording starts
-and stops follow the source eligibility schedule within the same game process.
-Short final tails are redistributed rather than discarded. All exclusions are
-recorded. See [FULL_DEMO_PROCESSING.md](FULL_DEMO_PROCESSING.md) for exact rules.
+The optional Series ID groups maps from the same match/BO3. Leave it blank to
+preserve existing identity. Independent series should stay separate for training
+and evaluation; the app refuses to silently change an existing series ID.
 
-The persistent queue is `<Output>/full-demo-queue/queue.json`. Each entry has a
-coverage report and progress journal under `jobs/<id>/`. Completed segments
-retain lossless `training.zip` and `evidence.zip` packages. Original native frames
-and timing logs live once in `session-packages`, referenced by each clip receipt.
-Temporary raw files and the staged demo are released after archive verification
-and completion of every dependent training segment.
-The original demo and shared parsed source are retained. Changing Output selects
-another queue; returning to the original folder restores its entries.
+The **More** menu provides:
 
-During recording, **Stop after current step** finishes the active physical
-recording interval and closes CS2. Validation waits until resume. During
-validation, Stop drains admitted clips through acceptance and compression.
-Closing the busy launcher
-requests that same graceful stop. Reopen it and use **Start / resume queue** to
-continue. Closed recordings and completed packages are reused. Insufficient
-whole-session storage or source/processing failures retain a specific diagnostic
-under **needs attention**. A resumed recording starts a fresh CS2 session only
-for missing intervals. Validation backlog is capped at one more clip than the
-worker count; all recorded raw data remains on disk until safely packaged.
+- **Prepare source data**: prepare the selected demos without queuing capture.
+  Select up to eight using Ctrl-click, Shift-click or Ctrl+A.
+- **Open source results**: open the selected demo's parsed directory, including
+  `manifest.json` and `validation.json`.
+- **Sample captures**: open the optional sample planning and capture tools.
+- **Activity log**: open the live log and access the latest run folder. Logging
+  continues while this tab is hidden; task failures open it automatically.
+- **Quick guide**: open this document.
 
-### Prepare sources or plan sample captures
+Logs, settings, and sample tools open only when needed. **Close tab** hides a
+secondary view without discarding its content. Returning to sample captures
+refreshes the saved batch status.
 
-1. Choose the **Demos** folder and an **Output** folder. Use **Scan folder** to
-   refresh the list; **Include subfolders** controls recursive discovery.
-2. Select one to eight demos. Ctrl-click and Shift-click select multiple rows.
-3. Use **Prepare source data** to extract commands/state and prepare the
-   competitive-phase and state-context sidecars. Current retained source tables
-   are checked against their hashes and reused when available. Old extractor
-   output is preserved; a fresh current extraction goes into the new run.
-4. To choose a POV, click **Load players**, then choose a name in **Player POV**.
-   Loading prepares missing source data first and lists recorded names, exact
-   Steam IDs and how many selected demos contain each player. Duplicate names
-   remain separate by ID. Leave **Automatic player selection** to let the planner
-   choose across players. The list is a recorded roster, not a promise of eligible
-   competitive footage; coaches or other recorded participants may have none.
-5. Use **Plan sample captures** to prepare any missing source data and create
-   a bounded capture batch. Choose 1-8 clips of 5, 10 or 20 seconds; the default
-   remains 10 seconds. The existing
-   planner selects ordinary/action examples from the chosen player's eligible
-   competitive play, or across players in automatic mode. A chosen player with
-   no eligible clips produces an error and retained diagnostics; it never falls
-   back to someone else.
-   This step does not launch CS2.
-6. **Open source results** opens the selected demo's parsed directory. Its
-   `manifest.json` describes the extraction; `validation.json` records quality
-   issues. **Open last run** opens the latest launcher task and full activity log.
+## Capture and output
 
-Changing the selected demos or output folder clears the player list and returns
-to automatic selection. Load players again to choose a POV for that selection.
-Player choices also start in automatic mode when reopening the app; saved batch
-plans retain their exact player IDs. This is bounded sample collection, not a
-complete player-match capture queue.
-For a larger action-blind recording of consecutive rounds, use the separate
-[round collection workflow](ROUND_COLLECTION.md). Its standard sub-batches can
-be opened in **Capture batches**; the session coordinator currently runs from
-the command line and owns the project lock while recording.
+One CS2 session records all eligible intervals for the selected player before
+parallel validation begins. Shared evidence is compressed, and validation workers
+prepare lossless training shards. Normal alive progression and combat are both
+included. Setup/warmup, freeze time, pauses, dead time and unsupported source
+intervals are excluded, with reasons recorded in the coverage report.
 
-The optional **Series ID** groups newly extracted maps from the same match/BO3.
-Leave it blank to preserve the identity of existing data. The app refuses to
-silently change an existing series ID. Group only maps belonging to the same
-series; independent series are needed for validation/test.
+Training files split at up to two minutes, without restarting CS2 at internal
+file boundaries. History overlap does not duplicate action targets. Processing
+requires no manual advance or routine HUD review. See
+[FULL_DEMO_PROCESSING.md](FULL_DEMO_PROCESSING.md) for the exact contract.
 
-**Recorded parse** is saved metadata shown for convenience, not a fresh audit.
-Preparation rechecks the source bytes. **Prepared; quality issues** means a
-complete parse exists with reported missing/invalid records. Those records are
-retained as evidence; later per-sample checks decide which windows are eligible.
-Neither status means that frames have been captured or training data accepted.
+The queue lives at `<Output>/full-demo-queue/queue.json`. Each demo has reports
+and progress under `jobs/<id>/`. Completed segments retain `training.zip` and
+`evidence.zip`; `session-packages` holds shared original frames and timing logs.
+Temporary capture work is released only after archive verification. Retain the
+source demo and parsed tables alongside the output packages.
 
-## Capture batches
+**Stop** requests a graceful stop. During recording, it finishes the current
+physical recording interval and closes CS2. During validation, it finishes
+already admitted clips. Closing a busy app requests the same stop before exiting.
+Reopen the app and use **Resume queue** to continue. Missing intervals require
+a new CS2 session; closed recordings and completed packages are reused.
 
-A newly planned batch appears automatically in this tab. **Load batch...** can
-also open an existing `batch_plan.json`, including batches created with the CLI.
-The table shows the map, round, Steam ID, duration and last recorded status.
-Displayed acceptance counts come from a summary bound to that plan; they are
-not an independent revalidation performed by simply opening the window.
-Malformed plans leave the current batch intact. Unreadable or malformed summaries
-are ignored for display, and refreshing keeps the selected clip.
+Insufficient disk space or processing failures retain a specific diagnostic.
+Inspect the report or **More > Activity log**, resolve the cause, then resume.
+Only one launcher instance owns the project at a time.
 
-Close normal CS2, then click **Run / resume next clip**. This calls the existing
-protected competitive batch runner with a one-job execution budget. It may
-launch CS2, process the capture and advance it to acceptance. It retains
-the worker's exact compatibility checks, settings backup/restoration, native
-clock and pixel checks. Routine captures trust the user-approved current HUD
-setup without generating review sheets or requiring human review. The app does not change
-Steam Offline Mode or Cloud preferences.
+## Optional sample captures
 
-For older captures with retained sheets, **Open review sheets** opens the saved
-local diagnostic page. New routine captures do not generate these sheets.
-Historical `pending visual review` statuses describe the earlier workflow;
-supported captures can now advance using `user_approved_capture_setup` as their
-HUD acceptance basis. It records the setup assumption, not per-frame human
-inspection. The current **Ready for acceptance** display is separate from that
-historical recorded status. Completed stages are rechecked and reused.
-Review links come from the current completed step in the matching capture
-journal, with the saved page checksum checked. Unjournaled or incomplete attempt
-folders cannot silently replace that review. Older bundles without an HTML index
-open their recorded review folder.
+Choose demos and an optional player in Demos, then open **More > Sample captures**.
+Choose 1-8 clips and 5, 10 or 20 seconds, and click **Plan from selection**.
+Leaving the player unselected lets the sample planner choose automatically.
+The full-demo queue always requires a named player.
 
-Failures, changed evidence and recovery requirements are shown as **Needs
-attention** with details in the log, even when the batch command itself returns
-exit code zero. Failed stages are not automatically retried and restoration is
-not bypassed. Use the [batch guide](COMPETITIVE_BATCH.md) and
-[Windows recovery instructions](WINDOWS_RENDERING.md) to resolve the cause.
+**Load batch...** opens an existing `batch_plan.json`. **Run next clip** advances
+one clip using the protected batch runner. Close any normal CS2 session first.
+**Open folder** provides access to retained batch results and any historical
+review artifacts. Routine captures generate no review sheets.
 
-## Stopping, output and limits
-
-- **Stop after current step** prevents new recordings and drains admitted
-  full-demo work. For source preparation or sample batches, it lets the current
-  extraction, planner or single-clip batch invocation finish.
-  It is not an immediate process kill.
-- Closing a busy window requests the same stop, then closes when the task and
-  any renderer cleanup attempt return. Recovery failures remain in the log and
-  worker journals. Do not use Task Manager as the normal stop mechanism.
-- One launcher window owns the project at a time, with one background task.
-  The UI remains responsive while the task runs. No parallel game-instance
-  setting is exposed in this version.
-- New launcher work goes into `<Output>/runs/<time>-<task>-<id>/`. Each task
-  retains `run.json` and `activity.log`, including failed/partial attempts.
-  Existing captures keep their batch's output directory when resumed, even if
-  the launcher's Output field points elsewhere.
-- Folder/options preferences live in `data/launcher/settings.json`. Startup
-  failures are recorded in `data/launcher/startup-error.txt`.
-- Legacy 720p sample originals cost about **1.18 GB per ten-second clip**, with
-  additional demo copies, traces and review files. The app checks working space
-  on the batch drive before capture; this is not a whole-demo budget or guarantee.
-
-The launcher supports the **complete demo queue for one selected player per
-entry** as well as bounded sample batches. Parallel game instances remain future
-work. Source preparation can read arbitrary demos, but rendering and training
-acceptance remain limited to the project's supported source/game profiles.
+The displayed accepted count comes from the saved batch summary. Malformed plans
+leave the loaded batch intact; unsupported source/game profiles still fail the
+existing compatibility checks. See [COMPETITIVE_BATCH.md](COMPETITIVE_BATCH.md)
+and [WINDOWS_RENDERING.md](WINDOWS_RENDERING.md) for recovery details.
 
 ## Verification
-
-The launcher has separate orchestration tests and opt-in real Tk interface tests:
 
 ```powershell
 .venv/Scripts/python.exe -m pytest tests/test_launcher_backend.py tests/test_launcher_players.py -q
@@ -186,22 +106,10 @@ $env:CS2_TEST_GUI = '1'
 .venv/Scripts/python.exe -m pytest tests/test_desktop_ui.py tests/test_desktop_players.py -q
 ```
 
-The interface tests use fixture processing callbacks and do not launch CS2.
-A separate real-source smoke run reused Dust2's canonical tables and produced
-one ten-second competitive plan with the actual planner/clock tools, without
-capturing. A new live capture initiated through the GUI has not been tested;
-the callback delegates to the previously verified protected batch runner.
-Twenty-second capture has now passed a live trial through that protected runner,
-retaining 640 original frames with matched message clocks and verified settings,
-binary and HUD cleanup. The GUI now exposes the same 20-second option; initiating
-a 20-second capture through the GUI has not been separately tested.
-Evidence and app screenshots are under
-[`data/validation/desktop-app-001/`](../data/validation/desktop-app-001/).
-The player-selection follow-up has **136 backend/collection/batch checks and 20
-real Tk checks passing**, including changing selections during roster loading,
-exact player dispatch and malformed batch/review handling. Follow-up evidence
-is under [`data/validation/desktop-app-002/`](../data/validation/desktop-app-002/).
-A real GUI run loaded the Dust2 roster, selected Ckanic and planned four
-ten-second clips for rounds 7, 16, 18 and 23 in about 85 seconds. All jobs retain
-his exact Steam ID; the plan has two ordinary and two reload examples. The app
-was visually inspected with that result loaded. No live capture was started.
+The Tk tests use fixture processing callbacks and do not launch CS2. They cover
+queue dispatch/resume, player identity, source preparation, settings persistence,
+secondary views, logs, graceful stopping and all screens at 960x600.
+
+Settings are stored in `data/launcher/settings.json`. Launcher tasks retain
+`run.json` and `activity.log` under `<Output>/runs/`. Startup errors go to
+`data/launcher/startup-error.txt`.

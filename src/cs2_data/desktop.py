@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from collections import Counter
 import os
 from pathlib import Path
 import queue
@@ -15,7 +16,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from . import launcher_backend as backend
 
-AUTO_PLAYER = "Automatic player selection"
+AUTO_PLAYER = "Select a player"
 TRAINING_PRESET = "640×360 · RGB · 8 bits/channel · 32 FPS · lossless compression"
 
 
@@ -63,6 +64,7 @@ class DemoLauncher:
         self.issue_count = 0
         self.players = {}
         self.player_selection = ()
+        self._queue_pending = False
         settings = {}
         try:
             settings = backend.read_object(self.settings_path)
@@ -85,20 +87,21 @@ class DemoLauncher:
         self.seconds = tk.StringVar(value=str(settings.get("clip_seconds", 10)))
         self.plan_path = tk.StringVar(value=str(settings.get("batch_path", "")))
         self.status = tk.StringVar(value="Ready")
-        self.elapsed = tk.StringVar(value="Ready")
+        self.elapsed = tk.StringVar(value="")
         self.disk = tk.StringVar()
         self.selection_text = tk.StringVar(value="Choose a folder, then select the demos to prepare.")
-        self.batch_text = tk.StringVar(value="Load an existing batch or plan sample captures from the Demos tab.")
+        self.batch_text = tk.StringVar(value="Plan from the current demo selection, or load a batch.")
         self.player = tk.StringVar(value=AUTO_PLAYER)
         self.output_preset = tk.StringVar(value=TRAINING_PRESET)
         self.validation_workers = tk.StringVar(value=str(settings.get("validation_workers", 2)))
         self.queue_text = tk.StringVar(value="Queue one demo and player at a time, then start automatic processing.")
         self.player_note = tk.StringVar(value="Load players to choose a POV. Missing source data will be prepared first.")
         root.title("Chicken Farmer - Demo Processing")
-        root.geometry("1120x880")
-        root.minsize(1000, 760)
+        root.geometry("1080x720")
+        root.minsize(960, 600)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self._build()
+        self.player.trace_add("write", lambda *_: self._sync_actions())
         self.refresh_queue()
         self._update_disk()
         self._poll_token = root.after(100, self._drain)
@@ -122,152 +125,211 @@ class DemoLauncher:
         if "vista" in style.theme_names():
             style.theme_use("vista")
         style.configure(".", font=("Segoe UI", 10))
-        style.configure("Title.TLabel", font=("Segoe UI", 22, "bold"))
-        style.configure("Subtle.TLabel", foreground="#546477", font=("Segoe UI", 10))
-        style.configure("Treeview", rowheight=29, font=("Segoe UI", 10))
+        style.configure("Title.TLabel", font=("Segoe UI", 20, "bold"))
+        style.configure("Subtle.TLabel", foreground="#546477")
+        style.configure("TButton", padding=(12, 6))
+        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"))
+        style.configure("Treeview", rowheight=32)
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
-        main = ttk.Frame(self.root, padding=(22, 16))
+        main = ttk.Frame(self.root, padding=(20, 16))
         main.pack(fill="both", expand=True)
         main.columnconfigure(0, weight=1)
-        main.rowconfigure(3, weight=1)
-        heading = ttk.Frame(main)
-        heading.grid(row=0, column=0, sticky="ew")
-        ttk.Label(heading, text="Chicken Farmer", style="Title.TLabel").pack(side="left")
-        ttk.Button(heading, text="Quick guide", command=lambda: self.open_path(
-            self.project / "docs/DESKTOP_APP.md")).pack(side="right")
-        ttk.Label(main, text="Local demo preparation and competitive POV captures", style="Subtle.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 12))
+        main.rowconfigure(1, weight=1)
 
-        paths = ttk.LabelFrame(main, text="Folders", padding=10)
-        paths.grid(row=2, column=0, sticky="ew")
-        paths.columnconfigure(1, weight=1)
-        for row, (label, variable) in enumerate((("Demos", self.folder), ("Output", self.output))):
-            ttk.Label(paths, text=label, width=8).grid(row=row, column=0, sticky="w", pady=4)
-            entry = ttk.Entry(paths, textvariable=variable)
-            entry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
-            self.controls.append(entry)
-            button = ttk.Button(paths, text="Browse...", command=lambda v=variable: self.browse_folder(v))
-            button.grid(row=row, column=2, padx=(4, 0))
-            self.controls.append(button)
-        ttk.Label(paths, textvariable=self.disk, style="Subtle.TLabel").grid(row=2, column=1, sticky="w", padx=8)
-        self.output.trace_add("write", lambda *_: self._output_changed())
+        heading = ttk.Frame(main)
+        heading.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+        ttk.Label(heading, text="Demo Processor", style="Title.TLabel").pack(side="left")
+        more = ttk.Menubutton(heading, text="More", direction="below")
+        more.pack(side="right")
+        self.tools_menu = tk.Menu(more, tearoff=False, postcommand=self._update_tools_menu)
+        more.configure(menu=self.tools_menu)
+        self.tools_menu.add_command(label="Prepare source data", command=lambda: self.prepare(False))
+        self.tools_menu.add_command(label="Open source results", command=self.open_source)
+        self.tools_menu.add_separator()
+        self.tools_menu.add_command(label="Sample captures", command=self.show_capture_tools)
+        self.tools_menu.add_command(label="Activity log", command=self.show_activity)
+        self.tools_menu.add_command(label="Quick guide", command=lambda: self.open_path(self.project / "docs/DESKTOP_APP.md"))
+        self._button(heading, "Settings", self.show_settings, side="right", padx=(0, 8))
 
         self.tabs = ttk.Notebook(main)
-        self.tabs.grid(row=3, column=0, sticky="nsew", pady=(14, 10))
-        demos_tab = ttk.Frame(self.tabs, padding=12)
-        self.capture_tab = ttk.Frame(self.tabs, padding=12)
-        self.queue_tab = ttk.Frame(self.tabs, padding=12)
-        self.tabs.add(demos_tab, text="  Demos  ")
-        self.tabs.add(self.queue_tab, text="  Demo queue  ")
-        self.tabs.add(self.capture_tab, text="  Capture batches  ")
-        for tab in (demos_tab, self.capture_tab, self.queue_tab):
+        self.tabs.grid(row=1, column=0, sticky="nsew", pady=(0, 14))
+        self.demos_tab = ttk.Frame(self.tabs, padding=14)
+        self.queue_tab = ttk.Frame(self.tabs, padding=14)
+        self.capture_tab = ttk.Frame(self.tabs, padding=14)
+        self.settings_tab = ttk.Frame(self.tabs, padding=20)
+        self.activity_tab = ttk.Frame(self.tabs, padding=14)
+        self.tabs.add(self.demos_tab, text="  Demos  ")
+        self.tabs.add(self.queue_tab, text="  Queue  ")
+        self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
+        for tab in (self.demos_tab, self.capture_tab, self.queue_tab):
             tab.columnconfigure(0, weight=1)
             tab.rowconfigure(1, weight=1)
 
-        toolbar = ttk.Frame(demos_tab)
-        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        self._button(toolbar, "Scan folder", self.scan, side="left")
-        recursive = ttk.Checkbutton(toolbar, text="Include subfolders", variable=self.recursive)
-        recursive.pack(side="left", padx=12)
-        self.controls.append(recursive)
-        self._button(toolbar, "Select all", lambda: self.demo_tree.selection_set(self.demo_tree.get_children()), side="right")
-        self.demo_tree = self._tree(demos_tab, ("Demo", "Map", "Size", "Preparation"), (415, 110, 95, 235), height=6)
+        toolbar = ttk.Frame(self.demos_tab)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        ttk.Label(toolbar, text="Folder").pack(side="left", padx=(0, 8))
+        folder = ttk.Entry(toolbar, textvariable=self.folder)
+        folder.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        folder.bind("<Return>", lambda _: self.scan())
+        self.controls.append(folder)
+        self._button(toolbar, "Browse...", lambda: self.browse_folder(self.folder), side="left")
+        self._button(toolbar, "Refresh", self.scan, side="left", padx=(8, 0))
+        self.demo_tree = self._tree(self.demos_tab, ("Demo", "Map", "Size", "Preparation"), (380, 110, 90, 200), height=8)
         self.demo_tree.bind("<<TreeviewSelect>>", self._selected)
+        self.demo_tree.bind("<Control-a>", self._select_all_demos)
+        self.demo_tree.bind("<Double-1>", lambda _: self.load_players() if not self.busy else None)
         self.folder.trace_add("write", lambda *_: self._folder_changed())
-        ttk.Label(demos_tab, textvariable=self.selection_text, style="Subtle.TLabel", wraplength=940).grid(row=2, column=0, sticky="w", pady=(7, 10))
-        options = ttk.Frame(demos_tab)
-        options.grid(row=3, column=0, sticky="ew", pady=(0, 8))
-        ttk.Label(options, text="Series ID (optional)").pack(side="left")
-        series = ttk.Entry(options, textvariable=self.series, width=28)
-        series.pack(side="left", padx=(8, 18))
-        self.controls.append(series)
-        for label, variable, values in (("Sample clips", self.clips, (1, 2, 4, 8)), ("Seconds / sample", self.seconds, (5, 10, 20))):
+        self.output.trace_add("write", lambda *_: self._output_changed())
+
+        player_bar = ttk.Frame(self.demos_tab)
+        player_bar.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        ttk.Label(player_bar, text="Player").pack(side="left", padx=(0, 8))
+        self.player_combo = ttk.Combobox(player_bar, textvariable=self.player, values=(AUTO_PLAYER,), state="readonly")
+        self.player_combo.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.player_combo.bind("<<ComboboxSelected>>", self._player_changed)
+        self.controls.append(self.player_combo)
+        self.load_players_button = self._button(player_bar, "Load players", self.load_players, side="left", padx=(0, 8))
+        self.enqueue_button = self._button(player_bar, "Add to queue", self.enqueue_demo, side="left")
+        self.enqueue_button.configure(style="Primary.TButton")
+
+        ttk.Label(self.queue_tab, textvariable=self.queue_text, style="Subtle.TLabel", wraplength=860).grid(
+            row=0, column=0, sticky="w", pady=(0, 12))
+        self.queue_tree = self._tree(self.queue_tab, ("Demo", "Player", "Status", "Segments", "Examples"),
+                                    (300, 175, 155, 100, 120), height=8)
+        self.queue_tree.bind("<Double-1>", lambda _: self.open_queue_report())
+        queue_bar = ttk.Frame(self.queue_tab)
+        queue_bar.grid(row=2, column=0, sticky="ew", pady=(14, 0))
+        self.start_queue_button = self._button(queue_bar, "Start queue", self.process_queue, side="left")
+        self.start_queue_button.configure(style="Primary.TButton")
+        self._button(queue_bar, "Open output", lambda: self.open_path(self.queue_path().parent), while_busy=True, side="right")
+        self._button(queue_bar, "View report", self.open_queue_report, while_busy=True, side="right", padx=(0, 8))
+
+        # Sample capture tools are available on demand, outside the full-demo flow.
+        bar = ttk.Frame(self.capture_tab)
+        bar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        entry = ttk.Entry(bar, textvariable=self.plan_path, state="readonly")
+        entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self._button(bar, "Load batch...", self.browse_batch, side="left")
+        self.batch_tree = self._tree(self.capture_tab, ("Map / source", "Round", "Player Steam ID", "Seconds", "Status"),
+                                     (225, 75, 200, 80, 270), height=6)
+        ttk.Label(self.capture_tab, textvariable=self.batch_text, style="Subtle.TLabel", wraplength=860).grid(
+            row=2, column=0, sticky="w", pady=10)
+        options = ttk.Frame(self.capture_tab)
+        options.grid(row=3, column=0, sticky="ew", pady=(0, 12))
+        for label, variable, values in (("Clips", self.clips, (1, 2, 4, 8)), ("Seconds", self.seconds, (5, 10, 20))):
             ttk.Label(options, text=label).pack(side="left", padx=(0, 6))
             combo = ttk.Combobox(options, textvariable=variable, values=values, state="readonly", width=4)
             combo.pack(side="left", padx=(0, 14))
             self.controls.append(combo)
-        player_bar = ttk.Frame(demos_tab)
-        player_bar.grid(row=4, column=0, sticky="ew", pady=(0, 8))
-        player_bar.columnconfigure(1, weight=1)
-        ttk.Label(player_bar, text="Player POV").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self.player_combo = ttk.Combobox(player_bar, textvariable=self.player, values=(AUTO_PLAYER,), state="readonly")
-        self.player_combo.grid(row=0, column=1, sticky="ew")
-        self.player_combo.bind("<<ComboboxSelected>>", self._player_changed)
-        self.controls.append(self.player_combo)
-        self.load_players_button = ttk.Button(player_bar, text="Load players", command=self.load_players)
-        self.load_players_button.grid(row=0, column=2, padx=(8, 0))
-        self.controls.append(self.load_players_button)
-        ttk.Label(player_bar, textvariable=self.player_note, style="Subtle.TLabel", wraplength=900).grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        actions = ttk.Frame(demos_tab)
-        actions.grid(row=5, column=0, sticky="ew")
-        self._button(actions, "Prepare source data", lambda: self.prepare(False), side="left")
-        self._button(actions, "Plan sample captures", lambda: self.prepare(True), side="left", padx=8)
-        self._button(actions, "Open source results", self.open_source, side="right")
-        full = ttk.Frame(demos_tab)
-        full.grid(row=6, column=0, sticky="ew", pady=(10, 0))
-        preset = ttk.Combobox(full, textvariable=self.output_preset, values=(TRAINING_PRESET,), state="readonly", width=66)
-        preset.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.controls.append(preset)
-        self._button(full, "Queue entire demo", self.enqueue_demo, side="right")
-        ttk.Label(demos_tab, text="Entire demo: select one demo and a named player. Eight-frame histories; eligible rounds run automatically.",
-                  style="Subtle.TLabel", wraplength=900).grid(row=7, column=0, sticky="w", pady=(6, 0))
-
-        ttk.Label(self.queue_tab, text="Entire demo → preprocessing → eligible player rounds → compressed training data",
-                  style="Subtle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
-        self.queue_tree = self._tree(self.queue_tab, ("Demo", "Player", "Status", "Segments", "Accepted examples"),
-                                    (350, 210, 155, 100, 145), height=6)
-        ttk.Label(self.queue_tab, textvariable=self.queue_text, style="Subtle.TLabel", wraplength=930).grid(row=2, column=0, sticky="w", pady=8)
-        queue_bar = ttk.Frame(self.queue_tab)
-        queue_bar.grid(row=3, column=0, sticky="ew")
-        self._button(queue_bar, "Start / resume queue", self.process_queue, side="left")
-        self._button(queue_bar, "Refresh queue", self.refresh_queue, while_busy=True, side="left", padx=8)
-        self._button(queue_bar, "Open coverage report", self.open_queue_report, while_busy=True, side="right")
-        self._button(queue_bar, "Open output", lambda: self.open_path(self.queue_path().parent), while_busy=True, side="right", padx=8)
-        parallel_bar = ttk.Frame(self.queue_tab)
-        parallel_bar.grid(row=4, column=0, sticky="ew", pady=(12, 0))
-        ttk.Label(parallel_bar, text="Validation workers").pack(side="left", padx=(0, 8))
-        workers = ttk.Combobox(parallel_bar, textvariable=self.validation_workers, values=(1, 2, 3, 4), state="readonly", width=4)
-        workers.pack(side="left")
-        self.controls.append(workers)
-        ttk.Label(parallel_bar, text="  2 recommended · run after all recording finishes", style="Subtle.TLabel").pack(side="left")
-        ttk.Label(self.queue_tab, text="One CS2 session records the whole demo for your player. Parallel validation and lossless compression follow.\n"
-                  "Training files split at two minutes. Stop finishes the current recording interval and saves progress for resume.",
-                  style="Subtle.TLabel", wraplength=930).grid(row=5, column=0, sticky="w", pady=(8, 0))
-
+        self._button(options, "Plan from selection", lambda: self.prepare(True), side="left")
         bar = ttk.Frame(self.capture_tab)
-        bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        entry = ttk.Entry(bar, textvariable=self.plan_path, state="readonly")
-        entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self._button(bar, "Load batch...", self.browse_batch, side="left")
-        self.batch_tree = self._tree(self.capture_tab, ("Map / source", "Round", "Player Steam ID", "Seconds", "Last recorded status"),
-                                     (225, 75, 200, 80, 270), height=6)
-        ttk.Label(self.capture_tab, textvariable=self.batch_text, style="Subtle.TLabel", wraplength=940).grid(row=2, column=0, sticky="w", pady=8)
-        bar = ttk.Frame(self.capture_tab)
-        bar.grid(row=3, column=0, sticky="ew")
-        self._button(bar, "Run / resume next clip", self.capture, side="left")
-        self._button(bar, "Refresh status", self.refresh_batch, side="left", padx=8)
-        self._button(bar, "Optional frames / setup", self.open_review, side="right")
-        self._button(bar, "Open batch folder", lambda: self.open_path(self.batch.parent if self.batch else None), side="right", padx=8)
-        ttk.Label(self.capture_tab, text="Run launches CS2. Close your normal game first. Each task advances at most one clip.\n"
-                  "Timing and settings guards remain active. The approved HUD setup needs no routine visual review.",
-                  style="Subtle.TLabel").grid(row=4, column=0, sticky="w", pady=(10, 0))
-
-        bar = ttk.Frame(main)
         bar.grid(row=4, column=0, sticky="ew")
-        ttk.Label(bar, text="Activity", font=("Segoe UI", 10, "bold")).pack(side="left")
-        ttk.Button(bar, text="Open last run", command=lambda: self.open_path(self.run_dir)).pack(side="right")
-        self.log_widget = ScrolledText(main, height=3, background="#152032", foreground="#dbe7f5",
-                                      insertbackground="white", font=("Consolas", 9), wrap="word", relief="flat", padx=10, pady=8)
-        self.log_widget.grid(row=5, column=0, sticky="ew", pady=(6, 8))
+        self._button(bar, "Run next clip", self.capture, side="left")
+        self._button(bar, "Open folder", lambda: self.open_path(self.batch.parent if self.batch else None), side="left", padx=8)
+        self._button(bar, "Close tab", lambda: self.tabs.hide(self.capture_tab), while_busy=True, side="right")
+
+        self._build_settings()
+        self.activity_tab.columnconfigure(0, weight=1)
+        self.activity_tab.rowconfigure(0, weight=1)
+        self.log_widget = ScrolledText(self.activity_tab, height=8, background="#152032", foreground="#dbe7f5",
+                                      insertbackground="white", font=("Consolas", 10), wrap="word", relief="flat", padx=12, pady=10)
+        self.log_widget.grid(row=0, column=0, sticky="nsew")
         self.log_widget.configure(state="disabled")
+        bar = ttk.Frame(self.activity_tab)
+        bar.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        self._button(bar, "Open run folder", lambda: self.open_path(self.run_dir), while_busy=True, side="left")
+        self._button(bar, "Close tab", lambda: self.tabs.hide(self.activity_tab), while_busy=True, side="right")
+
         footer = ttk.Frame(main)
-        footer.grid(row=6, column=0, sticky="ew")
-        self.progress = ttk.Progressbar(footer, mode="indeterminate", length=110)
-        self.progress.pack(side="left", padx=(0, 10))
-        ttk.Label(footer, textvariable=self.status, wraplength=580).pack(side="left", fill="x", expand=True)
-        ttk.Label(footer, textvariable=self.elapsed, style="Subtle.TLabel").pack(side="left", padx=10)
-        self.stop_button = ttk.Button(footer, text="Stop after current step", command=self.request_stop, state="disabled")
-        self.stop_button.pack(side="right")
+        footer.grid(row=2, column=0, sticky="ew")
+        footer.columnconfigure(1, weight=1)
+        self.progress = ttk.Progressbar(footer, mode="indeterminate", length=90)
+        self.progress.grid(row=0, column=0, padx=(0, 12))
+        self.status_label = ttk.Label(footer, textvariable=self.status, wraplength=600)
+        self.status_label.grid(row=0, column=1, sticky="w")
+        footer.bind("<Configure>", lambda event: self.status_label.configure(wraplength=max(200, event.width - 270)))
+        ttk.Label(footer, textvariable=self.elapsed, style="Subtle.TLabel").grid(row=0, column=2, padx=12)
+        self.stop_button = ttk.Button(footer, text="Stop", command=self.request_stop, state="disabled")
+        self.stop_button.grid(row=0, column=3)
+
+    def _build_settings(self):
+        tab = self.settings_tab
+        tab.columnconfigure(1, weight=1)
+        ttk.Label(tab, text="Output folder").grid(row=0, column=0, sticky="w", padx=(0, 16))
+        output = ttk.Entry(tab, textvariable=self.output)
+        output.grid(row=0, column=1, sticky="ew")
+        self.controls.append(output)
+        button = ttk.Button(tab, text="Browse...", command=lambda: self.browse_folder(self.output))
+        button.grid(row=0, column=2, padx=(8, 0))
+        self.controls.append(button)
+        ttk.Label(tab, textvariable=self.disk, style="Subtle.TLabel").grid(row=1, column=1, sticky="w", pady=(6, 20))
+        ttk.Label(tab, text="Training format").grid(row=2, column=0, sticky="nw", padx=(0, 16))
+        ttk.Label(tab, text="640 × 360 · RGB, 8 bits/channel · 32 FPS\n8-frame history · Lossless compression",
+                  style="Subtle.TLabel").grid(row=2, column=1, columnspan=2, sticky="w", pady=(0, 24))
+        ttk.Label(tab, text="Validation workers").grid(row=3, column=0, sticky="w", padx=(0, 16))
+        workers = ttk.Combobox(tab, textvariable=self.validation_workers, values=(1, 2, 3, 4), state="readonly", width=5)
+        workers.grid(row=3, column=1, sticky="w", pady=(0, 16))
+        self.controls.append(workers)
+        ttk.Label(tab, text="Series ID (optional)").grid(row=4, column=0, sticky="w", padx=(0, 16))
+        series = ttk.Entry(tab, textvariable=self.series, width=28)
+        series.grid(row=4, column=1, sticky="w", pady=(0, 16))
+        self.controls.append(series)
+        recursive = ttk.Checkbutton(tab, text="Include subfolders when finding demos", variable=self.recursive)
+        recursive.grid(row=5, column=1, columnspan=2, sticky="w")
+        self.controls.append(recursive)
+        tab.rowconfigure(6, weight=1)
+        bar = ttk.Frame(tab)
+        bar.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(24, 0))
+        self._button(bar, "Done", self.close_settings, side="right")
+
+    def _update_tools_menu(self):
+        selected = self.demo_tree.selection()
+        self.tools_menu.entryconfigure(0, state="normal" if not self.busy and 1 <= len(selected) <= 8 else "disabled")
+        self.tools_menu.entryconfigure(1, state="normal" if len(selected) == 1 else "disabled")
+
+    def _sync_actions(self):
+        selected = [self.demos[key].path for key in self.demo_tree.selection() if key in self.demos]
+        scoped = tuple(str(path) for path in selected) == self.player_selection
+        can_queue = len(selected) == 1 and scoped and self.player.get() in self.players
+        for button, enabled in ((self.load_players_button, 1 <= len(selected) <= 8),
+                                (self.enqueue_button, can_queue),
+                                (self.start_queue_button, self._queue_pending)):
+            button.state(["!disabled"] if enabled and not self.busy else ["disabled"])
+
+    def _select_all_demos(self, _event=None):
+        self.demo_tree.selection_set(self.demo_tree.get_children())
+        return "break"
+
+    def _show_tab(self, tab, title):
+        self.tabs.add(tab, text=f"  {title}  ")
+        self.tabs.select(tab)
+
+    def show_settings(self):
+        self._show_tab(self.settings_tab, "Settings")
+
+    def close_settings(self):
+        try:
+            from .demo_pipeline import worker_count
+            worker_count(int(self.validation_workers.get()))
+            if not self.output.get().strip():
+                raise ValueError("Choose an output folder.")
+            self._save()
+        except (OSError, ValueError) as error:
+            self.error(str(error))
+            return
+        self.tabs.hide(self.settings_tab)
+
+    def show_capture_tools(self):
+        self._show_tab(self.capture_tab, "Sample captures")
+
+    def show_activity(self):
+        self._show_tab(self.activity_tab, "Activity")
+
+    def _tab_changed(self, _event=None):
+        if self.tabs.select() == str(self.queue_tab) and hasattr(self, "queue_tree"):
+            self.refresh_queue()
+        elif self.tabs.select() == str(self.capture_tab) and self.batch:
+            self.refresh_batch()
 
     def _tree(self, parent, columns, widths, height):
         holder = ttk.Frame(parent)
@@ -287,7 +349,7 @@ class DemoLauncher:
             path = Path(self.output.get()).expanduser().resolve()
             while not path.exists() and path != path.parent:
                 path = path.parent
-            self.disk.set(f"{shutil.disk_usage(path).free / 1e9:,.1f} GB free on output drive  |  New runs keep existing outputs intact")
+            self.disk.set(f"{shutil.disk_usage(path).free / 1e9:,.1f} GB free")
         except (OSError, ValueError):
             self.disk.set("Choose an output folder to check available space.")
 
@@ -330,9 +392,11 @@ class DemoLauncher:
             return
         try:
             from .full_demo import enqueue
-            enqueue(self.queue_path(), selected[0], steam_id, self.player.get().split("  |  ")[0], match_id=self.series.get().strip())
+            job = enqueue(self.queue_path(), selected[0], steam_id, self.player.get().split("  |  ")[0], match_id=self.series.get().strip())
             self._save(); self.refresh_queue(); self.tabs.select(self.queue_tab)
-            self.status.set("Entire demo queued - ready to start")
+            self.queue_tree.selection_set(job["id"])
+            self.queue_tree.see(job["id"])
+            self.status.set("Demo added to queue")
         except (OSError, ValueError) as error:
             self.error(str(error))
 
@@ -347,21 +411,26 @@ class DemoLauncher:
                     job["status"].replace("_", " "), f"{job.get('completed_segments',0)}/{job.get('segment_count',0) or '—'}",
                     f"{job.get('accepted_samples',0):,}"))
             self.queue_tree.selection_set([key for key in selected if self.queue_tree.exists(key)])
-            self.queue_text.set(f"{len(doc['jobs'])} demos · 640×360 RGB8 · 32 FPS · lossless training shards and evidence archives. "
-                                "Completed segments resume without recapture.")
+            count = len(doc["jobs"])
+            self.queue_text.set(f"{count} demo{'s' if count != 1 else ''} in queue" if count else
+                                "No demos queued. Add one from Demos.")
+            resumable = any(job["status"] not in ("queued", "complete", "cancelled") for job in doc["jobs"])
+            self.start_queue_button.configure(text="Resume queue" if resumable else "Start queue")
+            self._queue_pending = any(job["status"] not in ("complete", "cancelled") for job in doc["jobs"])
             active = next((j for j in doc["jobs"] if j["status"] in ("processing", "recording", "indexing_session", "archiving_session", "validating") and j.get("pipeline")), None)
             if active:
                 p = active["pipeline"]
                 if p.get("phase") in ("recording", "indexing_session", "archiving_session"):
                     self.queue_text.set(f"{p['phase'].replace('_', ' ').capitalize()} · "
-                        f"{p.get('recorded_segments', 0)}/{p.get('total_segments', 0)} segments captured · validation starts after recording")
+                        f"{p.get('recorded_segments', 0)}/{p.get('total_segments', 0)} segments captured")
                 else:
                     recording = f"Recording {p['recording']}/1" if p.get("recording") else "Recording finished"
                     self.queue_text.set(f"{recording} · Validating {p.get('validating', 0)}/{p.get('validation_workers', 2)} · "
-                        f"Waiting {p.get('waiting', 0)} · Compressing {p.get('compressing', 0)}/1 · "
-                        f"In progress {p.get('in_flight', 0)}/{p.get('max_in_flight', 3)}")
+                        f"Compressing {p.get('compressing', 0)}/1")
         except (OSError, ValueError, KeyError, TypeError) as error:
+            self._queue_pending = False
             self.queue_text.set("Queue needs attention: "+str(error))
+        self._sync_actions()
 
     def process_queue(self):
         try:
@@ -470,6 +539,7 @@ class DemoLauncher:
             self.selection_text.set(str(self.demos[selected[0]].path))
         else:
             self.selection_text.set(f"{len(selected)} selected / {len(self.demos)} demos. Prepare up to eight at a time.")
+        self._sync_actions()
 
     def load_players(self):
         selected = [self.demos[key].path for key in self.demo_tree.selection()]
@@ -540,8 +610,7 @@ class DemoLauncher:
         self.batch = path
         self.plan_path.set(str(path))
         self.batch_tree.selection_set([key for key in selected if self.batch_tree.exists(key)])
-        self.batch_text.set(f"{len(rows)} clips  |  Last reported accepted samples: {summary.get('accepted_sample_count', 0):,}. "
-                            "Running checks timing and sample eligibility; the approved HUD setup is trusted.")
+        self.batch_text.set(f"{len(rows)} clips · Last reported accepted samples: {summary.get('accepted_sample_count', 0):,}")
 
     def refresh_batch(self):
         try:
@@ -691,11 +760,14 @@ class DemoLauncher:
         self.stop_button.state(["disabled"])
         for widget in self.controls:
             widget.state(["!disabled"])
+        self._sync_actions()
         self._update_disk()
         result = value.get("result", {})
         if value["status"] != "finished":
-            self.status.set("Stopped" if value["status"] == "stopped" else "Needs attention - see activity log")
+            self.status.set("Stopped" if value["status"] == "stopped" else "Needs attention - see Activity")
             self._log(value.get("error", "Task did not complete."))
+            if value["status"] == "failed":
+                self.show_activity()
             if value["kind"] == "capture":
                 self.refresh_batch()
             if value["kind"] == "full-demo":
@@ -704,7 +776,7 @@ class DemoLauncher:
         if result.get("batch_plan"):
             try:
                 self.load_batch(Path(result["batch_plan"]))
-                self.tabs.select(self.capture_tab)
+                self.show_capture_tools()
                 self._save()
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.status.set("Needs attention - could not load the batch")
@@ -715,8 +787,8 @@ class DemoLauncher:
             status = result.get("status")
             self.status.set("Queue stopped; active clips finished" if self.stop.is_set() or status == "stopped" else
                             "Queue paused: low disk space - free space, then resume" if status == "paused_low_disk" else
-                            "Queue complete - open the coverage report" if status == "complete" else
-                            "Queue run finished - see demo statuses and coverage reports")
+                            "Queue complete" if status == "complete" else
+                            "Queue run finished - see reports")
         elif value["kind"] == "capture":
             rows = result.get("summary", {}).get("jobs", [])
             ready = any(row.get("display_status", row.get("status")) == "ready_for_acceptance" for row in rows)
@@ -724,18 +796,25 @@ class DemoLauncher:
         elif value["kind"] == "scan":
             self.status.set(f"Found {result['demo_count']} demos")
         elif value["kind"] == "plan":
-            self.status.set("Batch planned - ready to inspect in Capture batches")
+            self.status.set("Sample batch ready")
         elif value["kind"] == "players":
             current = tuple(str(self.demos[key].path) for key in self.demo_tree.selection())
             if tuple(result["demos"]) == current:
                 self.player_selection = current
-                self.players = {f"{row['name'][:70]}  |  {row['steam_id']}  |  {row['demo_count']}/{len(current)} demos":
-                                row["steam_id"] for row in result["players"]}
+                names = Counter(row["name"][:70] for row in result["players"])
+                self.players = {}
+                for row in result["players"]:
+                    label = row["name"][:70]
+                    if names[label] > 1 or label == AUTO_PLAYER:
+                        label += f"  |  {row['steam_id']}"
+                    if len(current) > 1:
+                        label += f"  |  {row['demo_count']}/{len(current)} demos"
+                    self.players[label] = row["steam_id"]
                 previous = self.player.get()
                 self.player_combo.configure(values=(AUTO_PLAYER, *self.players))
                 self.player.set(previous if previous in self.players else AUTO_PLAYER)
                 self.player_note.set("Choose a player above, then queue the entire demo or plan sample captures.")
-                self.status.set(f"Loaded {len(self.players)} players - choose a POV")
+                self.status.set(f"Loaded {len(self.players)} players - select one to queue")
             else:
                 self._reset_players()
                 self.status.set("Demo selection changed - load players for the current selection")
@@ -747,13 +826,13 @@ class DemoLauncher:
         if self.busy:
             self.stop.set()
             self.stop_button.state(["disabled"])
-            self.status.set("Finishing active work and queued captures before stopping; keep the app open")
+            self.status.set("Stopping after active work finishes…")
 
     def close(self):
         if self.busy:
             self.close_when_idle = True
             self.request_stop()
-            self.status.set("Closing after the current step and renderer cleanup attempt finish")
+            self.status.set("Finishing active work before closing…")
         else:
             try:
                 self._save()
