@@ -169,6 +169,29 @@ def test_completed_session_dependency_is_checked_on_resume(run_fixture):
     assert prepared == ['0','1']
 
 
+def test_completed_lean_packages_resume_without_raw_or_evidence_archives(run_fixture, monkeypatch):
+    root, prepared, packed, released = run_fixture
+    plan = read_json(root/"demo_plan.json")
+    plan["evidence_retention"] = "lean"
+    save_settings(root/"demo_plan.json", plan)
+    progress = read_json(root/"progress.json")
+    progress["plan_sha256"] = sha256_file(root/"demo_plan.json")
+    save_settings(root/"progress.json", progress)
+    original = full.pack_segment
+    def pack(work, package, key, **kwargs):
+        assert kwargs["evidence_retention"] == "lean"
+        receipt = original(work, package, key, **kwargs)
+        receipt.pop("evidence_archive")
+        receipt.update(schema_version=2, evidence_retention="lean")
+        save_settings(package/"receipt.json", receipt)
+        return receipt
+    monkeypatch.setattr(full, "pack_segment", pack)
+    assert full.run_demo(root)["status"] == "complete"
+    assert prepared == packed == released == ["0", "1"]
+    assert full.run_demo(root)["status"] == "complete"
+    assert prepared == packed == released == ["0", "1"]
+
+
 def test_stop_finishes_packaging_current_segment_then_resume_continues(run_fixture):
     root, prepared, packed, released = run_fixture
     stop = threading.Event()
@@ -215,9 +238,11 @@ def test_queue_preprocesses_all_entries_then_skips_completed_entries_on_resume(t
         write_json(path, {"demo": str(demos[0])})
         prepared.append(demos[0])
         return path
-    def plan(sources, root, steam_id):
+    def plan(sources, root, steam_id, evidence_retention):
+        assert evidence_retention == "lean"
         write_json(root/"demo_plan.json", {"source": {"demo": read_json(sources)["demo"], "steam_id": steam_id},
-                                         "segments": [{"id": "one"}], "planned_seconds": 80})
+                                         "segments": [{"id": "one"}], "planned_seconds": 80,
+                                         "evidence_retention": evidence_retention})
     def run(root, stop, emit, validation_workers):
         assert validation_workers == 2
         processed.append(root)
@@ -336,7 +361,8 @@ def test_later_validation_finishes_first_but_packaging_preserves_dedup_order(run
         return original(path, **kwargs)
     monkeypatch.setattr(full.batch, "run_batch", run)
     original_pack = full.pack_segment
-    def pack(work, package, key, *, seen):
+    def pack(work, package, key, *, seen, evidence_retention):
+        assert evidence_retention == "full"  # An existing plan keeps its retention policy.
         assert seen == (set() if key == "0" else {"earlier target"})
         result = original_pack(work, package, key, seen=seen)
         seen.add("earlier target")

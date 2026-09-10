@@ -226,3 +226,102 @@ def test_index_and_view_release_database_handles_without_gc(tmp_path):
     finally:
         if enabled:gc.enable()
         gc.collect()
+
+
+def test_lean_storage_budget_omits_evidence_archive_only(plan):
+    full = session.plan_session(plan)["storage"]
+    lean = session.plan_session({**plan, "evidence_retention": "lean"})["storage"]
+    assert lean["max_shared_archive_bytes"] == 0
+    assert full["required_free_bytes"]-lean["required_free_bytes"] == full["max_shared_archive_bytes"]
+    for key in ("raw_frame_bytes", "max_log_bytes", "max_index_bytes", "max_training_archive_bytes", "reserve_bytes"):
+        assert lean[key] == full[key]
+
+
+@pytest.fixture
+def lean_session(tmp_path, monkeypatch):
+    queue = tmp_path/"queue"
+    (queue/"sessions").mkdir(parents=True)
+    index, run, root = indexed.__wrapped__(queue/"sessions")
+    source = queue/"original.dem"
+    source.write_bytes(b"demo bytes")
+    (root/"input.dem").write_bytes(source.read_bytes())
+    raw = root/"raw/abc"
+    raw.mkdir(parents=True)
+    paths = []
+    for n in range(6):
+        path = raw/f"abc_{n:08d}.tga"
+        path.write_bytes(bytes([n]))
+        paths.append(path)
+    render_path = Path(index["render_manifest"])
+    render = read_json(render_path)
+    render.update(recording_roots=[str(raw)], demo_id=sha256_file(source), source_job={"demo_uri": str(source)})
+    save_settings(render_path, render)
+    index["render_sha256"] = sha256_file(render_path)
+    save_settings(root/"session-index.json", index)
+    monkeypatch.setattr(processing.batch, "_worker", lambda: SimpleNamespace(
+        capture_files=lambda roots, prefix: paths, inspect_tga=lambda *a: None))
+    receipt_path = processing.pack_session(index, queue/"session-packages"/root.name)
+    progress = {"segments": {}}
+    for key in ("a", "b"):
+        destination = queue/"packages"/key
+        destination.mkdir(parents=True)
+        training = destination/"training.zip"
+        training.write_bytes(("verified training "+key).encode())
+        package = {"schema_version": 2, "status": "complete", "segment_id": key,
+            "evidence_retention": "lean", "training_archive": {"path": str(training), "sha256": sha256_file(training)},
+            "shared_session": {"receipt": str(receipt_path), "receipt_sha256": sha256_file(receipt_path)}}
+        save_settings(destination/"receipt.json", package)
+        progress["segments"][key] = {"status": "complete", "receipt": str(destination/"receipt.json"),
+            "receipt_sha256": sha256_file(destination/"receipt.json")}
+    save_settings(queue/"session-state.json", {"attempts": [{"status": "captured", "out": str(root)}]})
+    return queue, root, index, receipt_path, progress
+
+
+def test_lean_session_never_archives_and_waits_for_all_dependent_segments(lean_session):
+    queue, root, index, receipt_path, progress = lean_session
+    receipt = read_json(receipt_path)
+    assert receipt["evidence_retention"] == "lean" and receipt["compressed_bytes"] == 0
+    assert not list((queue/"session-packages").rglob("*.zip"))
+    assert len(processing.live_session_frames(receipt)) == 6
+    assert processing.pack_session(index, receipt_path.parent) == receipt_path
+    progress["segments"]["b"]["status"] = "needs_attention"
+    processing.release_completed_sessions(queue, progress)
+    assert root.exists() and len(list(root.rglob("*.tga"))) == 6
+    progress["segments"]["b"]["status"] = "complete"
+    processing.release_completed_sessions(queue, progress)
+    assert not root.exists() and receipt_path.is_file()
+    assert processing.verify_archive(read_json(receipt_path)) == receipt
+    assert read_json(queue/"session-state.json")["attempts"][0]["status"] == "released"
+    processing.release_completed_sessions(queue, progress)
+
+
+@pytest.mark.parametrize("mutation", ["training", "receipt", "source"])
+def test_lean_session_corruption_blocks_raw_cleanup(lean_session, mutation):
+    queue, root, _, receipt_path, progress = lean_session
+    path = {"training": queue/"packages/a/training.zip", "receipt": receipt_path,
+            "source": queue/"original.dem"}[mutation]
+    with path.open("ab") as stream:
+        stream.write(b" " if mutation == "receipt" else b"changed")
+    with pytest.raises(ValueError):
+        processing.release_completed_sessions(queue, progress)
+    assert root.exists() and len(list(root.rglob("*.tga"))) == 6
+
+
+def test_lean_cleanup_resumes_after_partial_raw_deletion(lean_session, monkeypatch):
+    queue, root, _, _, progress = lean_session
+    original = Path.unlink
+    removed = []
+    def interrupted(path, *args, **kwargs):
+        if path.is_relative_to(root):
+            if removed:
+                raise OSError("interrupted cleanup")
+            removed.append(path)
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "unlink", interrupted)
+    with pytest.raises(OSError, match="interrupted cleanup"):
+        processing.release_completed_sessions(queue, progress)
+    assert root.exists() and removed
+    assert read_json(queue/"session-state.json")["attempts"][0]["status"] == "captured"
+    monkeypatch.setattr(Path, "unlink", original)
+    processing.release_completed_sessions(queue, progress)
+    assert not root.exists()

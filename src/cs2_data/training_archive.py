@@ -1,4 +1,4 @@
-"""Lossless RGB training shards and recoverable compressed processing evidence."""
+"""Lossless RGB training shards with optional recoverable debug evidence."""
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -27,6 +27,21 @@ def encoded(value):
     return (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)+"\n").encode()
 
 
+def retention_mode(value):
+    require(value in ("lean", "full"), "Evidence retention must be lean or full")
+    return value
+
+
+def package_artifacts(receipt):
+    # Missing policy means the original format, whose evidence is mandatory.
+    mode = retention_mode(receipt.get("evidence_retention", "full"))
+    if mode == "lean":
+        require(receipt.get("schema_version") == 2 and "evidence_archive" not in receipt,
+                "Invalid lean package receipt")
+        return ("training_archive",)
+    return ("training_archive", "evidence_archive")
+
+
 def sample_key(sample):
     supports = sample["command_support"]
     require(len(supports) == 3, "Expected a predecessor and two target commands")
@@ -40,13 +55,14 @@ def _owned(root, path):
     return path
 
 
-def pack_segment(work, destination, segment_id, *, seen=None):
-    """Pack an already verified one-job batch, keeping complete evidence recoverable.
+def pack_segment(work, destination, segment_id, *, seen=None, evidence_retention="lean"):
+    """Pack a verified batch; full mode also retains recoverable debug evidence.
 
     No deletion here. A separately verified receipt authorizes releasing the new
     working directory. Existing captures outside this directory are never touched.
     """
     work, destination = Path(work).resolve(), Path(destination).resolve()
+    mode = retention_mode(evidence_retention)
     destination.mkdir(parents=True, exist_ok=True)
     seen = set() if seen is None else seen
     state = read_json(work/"batch/batch_state.json")
@@ -68,6 +84,7 @@ def pack_segment(work, destination, segment_id, *, seen=None):
     expected = dict(plan["files"])
     for stage in stages.values():
         expected.update(stage[-1]["files"])
+    require(all(Path(path).is_file() for path in expected), "Verified evidence missing before publication")
     for name, digest in acceptance["files"].items():
         require(sha256_file(acceptance_dir/name) == digest, "Acceptance partition changed before packaging")
     samples = [json.loads(line) for line in (acceptance_dir/"accepted_samples.jsonl").read_text().splitlines() if line]
@@ -79,12 +96,17 @@ def pack_segment(work, destination, segment_id, *, seen=None):
     shared_session = None
     shared_frames = {}
     if (work/"shared-session.json").exists():
-        from .session_processing import verify_archive
+        from .session_processing import verify_archive, live_session_frames
         shared_session = read_json(work/"shared-session.json")
         require(sha256_file(Path(shared_session["receipt"])) == shared_session["receipt_sha256"], "Shared session receipt changed")
         session_receipt = verify_archive(read_json(Path(shared_session["receipt"])))
-        with zipfile.ZipFile(session_receipt["archive"]["path"]) as archive:
-            session_members = json.loads(archive.read("archive_index.json"))["members"]
+        require(session_receipt.get("evidence_retention", "full") == mode,
+                "Segment and shared session retention differ")
+        if mode == "full":
+            with zipfile.ZipFile(session_receipt["archive"]["path"]) as archive:
+                session_members = json.loads(archive.read("archive_index.json"))["members"]
+        else:
+            session_members = live_session_frames(session_receipt)
         shared_frames = shared_session["frames"]
         for reference in shared_frames.values():
             require(session_members[reference["member"]]["sha256"] == reference["sha256"], "Shared native frame archive disagrees")
@@ -135,14 +157,20 @@ def pack_segment(work, destination, segment_id, *, seen=None):
                     "frames": frames, "sample_count": len(kept), "duplicate_count": len(duplicates),
                     "source_acceptance_sha256": sha256_file(acceptance_dir/"competitive_acceptance.json"),
                     "source_proof_sha256": acceptance["proof_sha256"],
-                    "demo_id": acceptance["demo_id"], "steam_id": str(acceptance["steam_id"])}
+                    "demo_id": acceptance["demo_id"], "steam_id": str(acceptance["steam_id"]),
+                    "source_files": plan["files"],
+                    "acceptance_summary": {key: acceptance[key] for key in
+                        ("profile", "accepted_count", "rejected_count", "reason_counts", "proof_sha256")}}
         archive.writestr("manifest.json", encoded(manifest))
         archive.writestr("samples.jsonl", b"".join(encoded(row) for row in kept))
         archive.writestr("duplicates.jsonl", b"".join(encoded(row) for row in duplicates))
     with zipfile.ZipFile(rgb_path) as archive:
         require(archive.testzip() is None, "Training archive failed its compression round trip")
     members, shared, original_bytes = {}, {}, 0
-    with zipfile.ZipFile(evidence_path, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as archive:
+    from contextlib import nullcontext
+    evidence_output = (zipfile.ZipFile(evidence_path, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True)
+                       if mode == "full" else nullcontext(None))
+    with evidence_output as archive:
         for path in sorted(work.rglob("*")):
             require(not path.is_symlink(), "Working evidence cannot contain symlinks")
             if not path.is_file():
@@ -153,12 +181,17 @@ def pack_segment(work, destination, segment_id, *, seen=None):
             original_bytes += before.st_size
             digest = hashlib.sha256()
             if name in shared_frames:
-                require(sha256_file(path) == shared_frames[name]["sha256"] == expected[str(path)], "Shared archived frame changed")
+                require(sha256_file(path) == shared_frames[name]["sha256"] == expected[str(path)], "Shared native frame changed")
                 continue
             if path.name == "input.dem":
                 actual = sha256_file(path)
                 require(actual == source["demo_id"], "Staged demo differs before shared-source archival")
                 shared[name] = {"path": source["demo"], "sha256": actual}
+                continue
+            if archive is None:
+                # Preserve publication integrity without storing a second copy.
+                if str(path) in expected:
+                    require(sha256_file(path) == expected[str(path)], "Verified evidence changed before publication: "+name)
                 continue
             with path.open("rb") as stream, archive.open(name, "w", force_zip64=True) as output:
                 for block in iter(lambda: stream.read(1024*1024), b""):
@@ -170,19 +203,22 @@ def pack_segment(work, destination, segment_id, *, seen=None):
             require(str(path) not in expected or expected[str(path)] == actual,
                     "Verified evidence changed before archival: "+name)
             members[name] = {"sha256": actual, "bytes": before.st_size}
-        archive.writestr("archive_index.json", encoded({"original_root": str(work), "members": members, "shared_sources": shared,
-            **({"shared_session": shared_session} if shared_session else {})}))
-    with zipfile.ZipFile(evidence_path) as archive:
-        require(archive.testzip() is None, "Evidence archive failed its compression round trip")
-    receipt = {"schema_version": 1, "profile": PROFILE, "status": "complete", "format": FORMAT,
+        if archive is not None:
+            archive.writestr("archive_index.json", encoded({"original_root": str(work), "members": members, "shared_sources": shared,
+                **({"shared_session": shared_session} if shared_session else {})}))
+    if mode == "full":
+        with zipfile.ZipFile(evidence_path) as archive:
+            require(archive.testzip() is None, "Evidence archive failed its compression round trip")
+    receipt = {"schema_version": 2, "profile": PROFILE, "status": "complete", "format": FORMAT,
+               "evidence_retention": mode,
                "segment_id": segment_id, "frame_count": len(frames), "sample_count": len(kept),
                "rejected_count": acceptance["rejected_count"], "reason_counts": acceptance["reason_counts"],
                "duplicate_count": len(duplicates), "original_work_root": str(work),
                "source_acceptance_sha256": manifest["source_acceptance_sha256"],
                "training_archive": {"path": str(rgb_path), "sha256": sha256_file(rgb_path)},
-               "evidence_archive": {"path": str(evidence_path), "sha256": sha256_file(evidence_path)},
+               **({"evidence_archive": {"path": str(evidence_path), "sha256": sha256_file(evidence_path)}} if mode == "full" else {}),
                "uncompressed_work_bytes": original_bytes,
-               "compressed_bytes": rgb_path.stat().st_size+evidence_path.stat().st_size,
+               "compressed_bytes": rgb_path.stat().st_size+(evidence_path.stat().st_size if mode == "full" else 0),
                "shared_sources": shared, "training_ready": bool(kept), "model_training_performed": False,
                **({"shared_session": {k: shared_session[k] for k in ("receipt", "receipt_sha256")}} if shared_session else {})}
     save_settings(destination/"receipt.json", receipt)
@@ -194,7 +230,7 @@ def release_work(work, receipt, owned_root):
     """Release only a new queue-owned workspace after its archives are verified."""
     work = _owned(owned_root, work)
     require(str(work) == receipt["original_work_root"] and receipt["status"] == "complete", "Archive receipt has another workspace")
-    for key in ("training_archive", "evidence_archive"):
+    for key in package_artifacts(receipt):
         item = receipt[key]
         path = _owned(owned_root, item["path"])
         require(not path.is_relative_to(work) and sha256_file(path) == item["sha256"], "Archive changed before workspace release")

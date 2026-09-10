@@ -1,5 +1,21 @@
 # Current implementation status
 
+**Latest work (2026-09-10): lean evidence retention for new full-demo plans.**
+Default processing publishes lossless RGB training archives, compact acceptance
+summaries and session receipts. It skips shared and per-segment evidence ZIPs,
+while preserving the existing acceptance checks and temporary inputs until all
+dependent shards are safely packaged. Corrupt packages block cleanup; interrupted
+cleanup resumes from durable receipts. Settings offers full debug retention for
+newly queued demos; existing plans and packages retain their original policy.
+The storage estimate omits shared-archive space in lean mode. Preview generation
+and numerical acceptance still run. No existing user output was deleted.
+
+Validation: **2,238 regression tests and 38 opt-in Tk smoke tests passed**. Tests
+compare every training ZIP member between lean/full modes and cover corruption,
+shared ownership and interrupted cleanup. The updated reader also loaded the
+first and last histories of an existing real 605-sample RGB shard. No new CS2
+capture was run for this change. See [output contract](../FULL_DEMO_PROCESSING.md).
+
 **Latest work (2026-09-08): parallel full-demo processing.**
 The Demo queue now overlaps one recorder with 1-4 independent CPU validation
 processes (default 2) and an ordered lossless archive worker. The bounded backlog

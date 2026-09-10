@@ -10,6 +10,10 @@ remain available. It uses the existing local Python environment.
 The full-demo queue overlaps one recorder with two validation processes by
 default (1-4 selectable) and ordered lossless compression, with a bounded backlog.
 See the [desktop app guide](docs/DESKTOP_APP.md) for the workflow and limits.
+New full-demo plans keep verified RGB training archives and compact receipts by
+default. Temporary evidence is released after all dependent segments are packaged;
+Settings offers **Keep full debug evidence** for diagnostic runs. Existing plans
+and archives retain their original policy.
 For ordinary round progression, the [consecutive-round collector](docs/ROUND_COLLECTION.md)
 plans chronological player footage with explicit tails, budgets and resumable capture.
 

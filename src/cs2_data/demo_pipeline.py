@@ -194,8 +194,10 @@ def run_pipeline(root, plan, progress, tools, seen, *, stop, emit, validation_wo
                     if state["status"] == "validated":
                         item["package"] = root/"packages"/key/uuid.uuid4().hex[:12]
                         state.update(status="compressing", pack_started_at=now())
-                        futures[archiver.submit(pack_segment, item["work"], item["package"], key, seen=seen)] = ("pack", key)
-                        persist(describe(key, "compressing RGB training frames and evidence"))
+                        mode = plan.get("evidence_retention", "full")
+                        futures[archiver.submit(pack_segment, item["work"], item["package"], key, seen=seen,
+                                                evidence_retention=mode)] = ("pack", key)
+                        persist(describe(key, "compressing RGB training frames" + (" and debug evidence" if mode == "full" else "")))
 
                 low_disk = False
                 while pending and len(active) < limit and not stop.is_set():

@@ -17,33 +17,43 @@ shows this fixed baseline preset. Capture runs at 640x360 directly. Original TGA
 pixels are decoded to top-first RGB24; alpha is removed, with no palette
 reduction, resizing or lossy video conversion in the training path.
 
-Each completed segment publishes:
+New demo plans use **lean evidence retention** by default. Acceptance checks are
+unchanged. Each completed segment publishes:
 
 - `training.zip`: individually indexed, losslessly DEFLATE-compressed RGB24
   frame members, a manifest, accepted sample metadata, projected targets/masks
   and an explicit duplicate-target exclusion list. Each decompressed frame is
   exactly 691,200 bytes, or 675 KiB. ZIP64 supports larger archives.
-- `evidence.zip`: clip processing evidence, timing results and accepted/rejected
-  partitions. Its index references the shared session archive for original TGA
-  images, native timing/packet history, settings and game lifecycle evidence.
-  Original native frames and the common log are compressed once per session.
-- `session-packages/<session>/receipt.json` and `evidence-*.zip`: the lossless
-  shared session archive, including the native ledger, SQLite index and frames.
-  Clip receipts identify this dependency by path and SHA-256.
+- `session-packages/<session>/receipt.json`: a compact shared session receipt
+  with source hashes, index identity and the recording schedule. Segment receipts
+  bind this metadata by path and SHA-256; no shared evidence ZIP is built.
 - `receipt.json`: format, archive hashes, acceptance identity, frame/sample
-  counts, rejection reasons and storage totals. A receipt is published only
-  after both compression round trips pass.
+  counts, rejection reasons and storage totals. Publication follows the training
+  archive compression round trip. The training manifest also keeps source hashes
+  and a compact acceptance summary; accepted samples retain timing, labels and masks.
 
-The two archives deliberately retain a training-friendly RGB representation and
-recoverable original evidence. Preview MP4 is diagnostic and is not used as model
-input. Source demos and canonical parsed tables are shared external references.
-The staged `input.dem` copy is omitted from the evidence ZIP only after its hash
-matches the original; the archive index records that reference.
+Raw TGA frames, native timing/packet logs, the SQLite index, preview MP4s and
+intermediate reports remain temporary inputs to the existing acceptance checks.
+They are released only after every dependent segment has a verified, durable
+training package. Interrupted or failed work stays available for resume. Lean
+mode retains accepted samples and aggregate rejection counts/reasons, not the
+full rejected partitions or a reconstructable history of every validation step.
 
-Only newly created queue working directories are released, after verifying both
-archives and any shared demo references. Existing captures are not migrated or
-removed. Retain the original demo and parsed source alongside the packages.
-For a forensic reconstruction, extract evidence back to its recorded original
+For recoverable debug evidence, enable **Keep full debug evidence** in Settings
+before adding a demo to the queue. Programmatic planning accepts
+`evidence_retention="full"`; the `cs2_data.full_demo` CLI also accepts
+`--retain-evidence` for newly planned jobs. Full mode additionally publishes each
+segment's `evidence.zip` and a shared `evidence-*.zip` containing original frames,
+native logs, the SQLite index and lifecycle evidence. Both ZIP round trips and
+their hashes are checked before cleanup.
+
+Retention is fixed in `demo_plan.json`. Existing plans without a retention field
+keep the original full mode; existing packages are neither migrated nor deleted.
+Newly planned jobs, including previously queued jobs with no plan, default to lean.
+Missing retention on a legacy package still requires its evidence archive.
+Retain original demos and the current parsed source alongside either format.
+
+For a forensic reconstruction of a full-mode run, extract evidence to its original
 workspace, extract the referenced shared session archive to its recorded root,
 restore each clip's frame references from the shared archive index, and restore
 omitted staged demo references from the unchanged source;
@@ -91,8 +101,9 @@ forward playback, native start/stop acknowledgements and one final game exit.
 A missed boundary, wrong player, frame-counter discontinuity or tick regression
 stops the attempt and retains evidence. No timing offset is invented to recover it.
 
-After capture closes and settings are restored, the app indexes and compresses
-shared native evidence. The UI's **Validation workers** setting accepts 1-4 and
+After capture closes and settings are restored, the app indexes shared native
+evidence and saves its session receipt. Full mode also compresses that evidence.
+The UI's **Validation workers** setting accepts 1-4 and
 defaults to **2**. Each worker prepares bounded logical clips, encodes a diagnostic
 preview, verifies frames and inputs, and runs numerical acceptance. Native clock
 and packet invocation IDs retain their full process history across movie starts.
@@ -102,12 +113,13 @@ it never claims that CS2 stopped recording at a training-file split.
 One archive worker publishes validated RGB shards in source order so duplicate
 action targets receive deterministic ownership. At most `validation_workers + 1`
 clips are admitted to validation/compression at a time. All already recorded raw
-data remains on disk until its dependent shards are safely packaged. Original
-TGA files are stored once in the session evidence archive, and training pixels
-remain individually addressable, losslessly compressed RGB8 members.
+data remains on disk until its dependent shards are safely packaged. Lean mode
+then releases the originals; full mode keeps them in one shared evidence archive.
+Training pixels remain individually addressable, losslessly compressed RGB8 members.
 
 Before launch the app estimates the whole recording's raw frames, bounded native
-logs, staged demo, index/archive workspace and a 15 GB reserve. At this baseline,
+logs, staged demo, index/training workspace and a 15 GB reserve. Full mode also
+reserves shared evidence archive space; lean mode reserves none for that ZIP. At this baseline,
 raw BGRA capture uses about 1.77 GB per recorded minute. The live recorder monitors
 free space and log size, requests an orderly stop when limits approach, and uses
 an emergency bound for a stalled process or critically low disk space. Recording
@@ -122,8 +134,10 @@ session. A failed native session remains retained for investigation and is never
 treated as accepted training data. Replaying earlier ticks requires a fresh process.
 
 Completed package receipts are saved before cleanup. The common session workspace
-is released only after every dependent segment has verified training/evidence
-archives. Cleanup can resume after interruption. Old completed packages remain
+is released only after every dependent segment has verified training archives
+and, in full mode, evidence archives. Cleanup can resume after interruption using
+the durable session receipt, even if some raw files have already been removed.
+Old completed packages remain
 usable; existing capture files outside this queue are not migrated or deleted.
 The original demo and parsed source must remain alongside the compressed output.
 

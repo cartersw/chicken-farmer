@@ -149,10 +149,14 @@ throughput as well as compression ratio. The smallest benchmark output is not
 automatically the fastest training input. Long-GOP video needs extra seeking,
 presentation-frame indexing and decode-cache evaluation before adoption.
 
-Retain recoverable originals while preparing the decided RGB profile. Compression
-and caching must preserve source identity, accepted sample membership, image
-information bounds, labels and masks. The existing loader requires original TGA
-paths and hashes; migration needs a separate prepared-dataset manifest and reader.
+Keep originals temporarily while preparing and verifying the RGB profile.
+New full-demo plans use lean retention: once every dependent RGB shard has a
+durable verified receipt, raw frames and validation evidence are released. Full
+debug retention remains available. Original demos and current parsed sources stay.
+Compression and caching preserve source identity, accepted sample membership,
+image information bounds, labels and masks. The older `CompetitiveTrainingDataset`
+path still requires raw TGA files and full acceptance inputs; the prepared-shard
+`RGBFrameCache` reads training ZIPs and receipts without those temporary paths.
 Validate the accepted source snapshot on preparation/open, verify decoded entries
 on first use, and reuse only immutable verified buffers. Modified archives or
 transforms invalidate the cache and stop that run. Do not weaken acceptance to

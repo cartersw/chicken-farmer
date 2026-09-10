@@ -19,7 +19,7 @@ from .competitive_coverage import normalize_steam_id
 from .io import parsed_manifest, read_json, sha256_file, write_json
 from .jobs import render_jobs, phase_evidence
 from .launcher_backend import PROJECT, StopRequested, prepare_sources, renderer_tools, save_settings
-from .training_archive import FORMAT, pack_segment, release_work, sample_key
+from .training_archive import FORMAT, pack_segment, release_work, sample_key, package_artifacts, retention_mode
 
 PROFILE = "cs2-full-player-demo-v1"
 QUEUE_PROFILE = "cs2-full-demo-queue-v1"
@@ -51,15 +51,17 @@ def load_queue(path):
         ids.add(key)
         require(job.get("format") == FORMAT and normalize_steam_id(job.get("steam_id")) is not None,
                 "Queue entry has an unsupported player or output format")
+        retention_mode(job.get("evidence_retention", "lean"))
     return doc
 
 
-def enqueue(path, demo, steam_id, player_name, *, match_id="", output_format=None):
+def enqueue(path, demo, steam_id, player_name, *, match_id="", output_format=None, evidence_retention="lean"):
     path, demo = Path(path).resolve(), Path(demo).resolve()
     steam_id = normalize_steam_id(steam_id)
     require(steam_id is not None, "Select one named player before queueing an entire demo")
     require(demo.is_file() and demo.suffix.lower() == ".dem", "Select an existing demo")
     require(output_format in (None, FORMAT), "Full-demo output is 640x360 RGB8, 32 FPS, eight-frame histories")
+    mode = retention_mode(evidence_retention)
     path.parent.mkdir(parents=True, exist_ok=True)
     with batch._lock(path.parent):
         doc = load_queue(path)
@@ -67,7 +69,7 @@ def enqueue(path, demo, steam_id, player_name, *, match_id="", output_format=Non
                         for j in doc["jobs"]), "This demo/player is already queued; resume its existing entry")
         job = {"id": uuid.uuid4().hex, "demo": str(demo), "steam_id": steam_id,
                "player_name": str(player_name)[:150], "match_id": match_id,
-               "format": dict(FORMAT), "status": "queued", "created_at": now(),
+               "format": dict(FORMAT), "evidence_retention": mode, "status": "queued", "created_at": now(),
                "completed_segments": 0, "segment_count": 0, "accepted_samples": 0}
         doc["jobs"].append(job); save_settings(path, doc)
     return job
@@ -173,7 +175,8 @@ def exclusion_timeline(source, canonical, windows, segments, edge_exclusions):
     return rows, end
 
 
-def plan_demo(sources_path, out, *, steam_id, max_ticks=MAX_TICKS):
+def plan_demo(sources_path, out, *, steam_id, max_ticks=MAX_TICKS, evidence_retention="lean"):
+    mode = retention_mode(evidence_retention)
     out = Path(out).resolve()
     require(not out.exists(), "Full-demo planning needs a fresh directory")
     steam_id = normalize_steam_id(steam_id)
@@ -216,7 +219,7 @@ def plan_demo(sources_path, out, *, steam_id, max_ticks=MAX_TICKS):
     excluded, source_ticks = exclusion_timeline(source, canonical, windows, segments, edges)
     owned_ticks = sum(s["owned_end_demo_tick"]-s["owned_start_demo_tick"] for s in segments)
     capture_ticks = sum(s["end_demo_tick"]-s["start_demo_tick"] for s in segments)
-    plan = {"schema_version": 1, "profile": PROFILE, "format": FORMAT, "source": source,
+    plan = {"schema_version": 1, "profile": PROFILE, "format": FORMAT, "source": source, "evidence_retention": mode,
             "source_files": files, "segments": segments, "exclusions": excluded,
             "source_ticks": source_ticks, "owned_ticks": owned_ticks, "capture_ticks": capture_ticks,
             "planned_seconds": owned_ticks/64, "history_overlap_ticks": capture_ticks-owned_ticks,
@@ -297,7 +300,7 @@ table{{width:100%;border-collapse:collapse;margin:20px 0}}td,th{{text-align:left
 <p>The queue continues automatically. Capture boundaries include overlapping history; duplicate action targets are removed. Dead time, pauses, setup and unavailable source data are excluded. Accepted examples also require valid timing and labels.</p>
 <table><tr><th>Segment</th><th>Round</th><th>Owned source interval</th><th>Status</th><th>Examples</th><th>Rejected</th><th>Duplicates</th><th>Details</th></tr>{''.join(rows)}</table>
 <h2>Excluded source time</h2><table>{exclusions}</table><details><summary>All excluded intervals</summary><table>{details}</table></details>
-<p>Training pixels and processing evidence are losslessly compressed in packages. The original demo and shared parsed source remain external references. Model training has not run.</p></body></html>'''
+<p>Training pixels are losslessly compressed. Evidence retention: {e(plan.get('evidence_retention', 'full'))}. Lean mode releases temporary evidence after all dependent training packages are verified; full mode retains debug archives. The original demo and parsed source remain external references. Model training has not run.</p></body></html>'''
     path = root/"index.html"
     temporary = path.with_suffix(".tmp")
     temporary.write_text(body, encoding="utf-8"); temporary.replace(path)
@@ -308,6 +311,7 @@ def run_demo(root, *, stop=None, emit=None, max_segments=None, validation_worker
     stop, emit = stop or threading.Event(), emit or (lambda message: None)
     plan = read_json(root/"demo_plan.json")
     require(plan.get("profile") == PROFILE and plan.get("format") == FORMAT, "Unsupported full-demo plan")
+    retention_mode(plan.get("evidence_retention", "full"))
     progress = read_json(root/"progress.json")
     require(progress["plan_sha256"] == sha256_file(root/"demo_plan.json"), "Full-demo plan changed")
     batch._verify_hashes(plan["source_files"])
@@ -319,7 +323,7 @@ def run_demo(root, *, stop=None, emit=None, max_segments=None, validation_worker
             continue
         receipt = read_json(Path(record["receipt"]))
         require(sha256_file(Path(record["receipt"])) == record["receipt_sha256"], "Completed package receipt changed")
-        for key in ("training_archive", "evidence_archive"):
+        for key in package_artifacts(receipt):
             require(sha256_file(Path(receipt[key]["path"])) == receipt[key]["sha256"], "Completed archive changed")
         shared = receipt.get("shared_session")
         if shared is not None:
@@ -353,9 +357,11 @@ def run_demo(root, *, stop=None, emit=None, max_segments=None, validation_worker
     return result
 
 
-def run_queue(task, queue_path, *, validation_workers=2):
+def run_queue(task, queue_path, *, validation_workers=2, evidence_retention=None):
     from .demo_pipeline import worker_count
     worker_count(validation_workers)
+    if evidence_retention is not None:
+        retention_mode(evidence_retention)
     queue_path = Path(queue_path).resolve()
     (task.project/"data/launcher").mkdir(parents=True, exist_ok=True)
     with batch._lock(queue_path.parent), batch._lock(task.project/"data/launcher"):
@@ -376,12 +382,14 @@ def run_queue(task, queue_path, *, validation_workers=2):
                         old = root.with_name(root.name+"-incomplete-"+uuid.uuid4().hex[:8])
                         require(root.resolve().is_relative_to(queue_path.parent) and old.resolve().is_relative_to(queue_path.parent), "Unsafe queue recovery path")
                         root.rename(old)
-                    plan_demo(sources, root, steam_id=job["steam_id"])
+                    plan_demo(sources, root, steam_id=job["steam_id"],
+                              evidence_retention=evidence_retention or job.get("evidence_retention", "lean"))
                 plan = read_json(root/"demo_plan.json")
                 require(Path(plan["source"]["demo"]).resolve() == Path(job["demo"]).resolve() and
                         plan["source"]["steam_id"] == job["steam_id"], "Saved plan belongs to another queued demo/player")
                 job.update(report=str(root/"index.html"), output=str(root), segment_count=len(plan["segments"]),
-                           planned_seconds=plan["planned_seconds"], status="processing")
+                           planned_seconds=plan["planned_seconds"], status="processing",
+                           evidence_retention=plan.get("evidence_retention", "full"))
                 save_settings(queue_path, doc)
 
                 def update(message):
@@ -412,13 +420,15 @@ def main(argv=None):
     parser.add_argument("--queue", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--validation-workers", type=int, choices=range(1, 5), default=2)
+    parser.add_argument("--retain-evidence", action="store_true", help="Keep full debug evidence for newly planned demos")
     args = parser.parse_args(argv)
     from .launcher_backend import TaskRunner
     args.queue.parent.mkdir(parents=True, exist_ok=True)
     (PROJECT/"data/launcher").mkdir(parents=True, exist_ok=True)
     task = TaskRunner(args.output, "full-demo", lambda kind, value: print(value, flush=True), threading.Event())
     try:
-        result = run_queue(task, args.queue, validation_workers=args.validation_workers)
+        result = run_queue(task, args.queue, validation_workers=args.validation_workers,
+                           evidence_retention="full" if args.retain_evidence else None)
         task.finish("finished", result=result)
     except Exception as error:
         task.finish("failed", error=str(error)); raise

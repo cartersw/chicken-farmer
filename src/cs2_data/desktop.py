@@ -94,6 +94,7 @@ class DemoLauncher:
         self.player = tk.StringVar(value=AUTO_PLAYER)
         self.output_preset = tk.StringVar(value=TRAINING_PRESET)
         self.validation_workers = tk.StringVar(value=str(settings.get("validation_workers", 2)))
+        self.retain_evidence = tk.BooleanVar(value=settings.get("retain_evidence", False) is True)
         self.queue_text = tk.StringVar(value="Queue one demo and player at a time, then start automatic processing.")
         self.player_note = tk.StringVar(value="Load players to choose a POV. Missing source data will be prepared first.")
         root.title("Chicken Farmer - Demo Processing")
@@ -277,9 +278,13 @@ class DemoLauncher:
         recursive = ttk.Checkbutton(tab, text="Include subfolders when finding demos", variable=self.recursive)
         recursive.grid(row=5, column=1, columnspan=2, sticky="w")
         self.controls.append(recursive)
-        tab.rowconfigure(6, weight=1)
+        evidence = ttk.Checkbutton(tab, text="Keep full debug evidence for new queued demos (uses more disk space)",
+                                   variable=self.retain_evidence)
+        evidence.grid(row=6, column=1, columnspan=2, sticky="w", pady=(12, 0))
+        self.controls.append(evidence)
+        tab.rowconfigure(7, weight=1)
         bar = ttk.Frame(tab)
-        bar.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(24, 0))
+        bar.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(24, 0))
         self._button(bar, "Done", self.close_settings, side="right")
 
     def _update_tools_menu(self):
@@ -374,6 +379,7 @@ class DemoLauncher:
         backend.save_settings(self.settings_path, {"demo_folder": self.folder.get(), "output_folder": self.output.get(),
             "recursive": self.recursive.get(), "series_id": self.series.get(), "clips": self.clips.get(),
             "clip_seconds": self.seconds.get(), "batch_path": self.plan_path.get(), "validation_workers": self.validation_workers.get(),
+            "retain_evidence": self.retain_evidence.get(),
             "last_run": str(self.run_dir) if self.run_dir else ""})
 
     def queue_path(self):
@@ -392,7 +398,8 @@ class DemoLauncher:
             return
         try:
             from .full_demo import enqueue
-            job = enqueue(self.queue_path(), selected[0], steam_id, self.player.get().split("  |  ")[0], match_id=self.series.get().strip())
+            job = enqueue(self.queue_path(), selected[0], steam_id, self.player.get().split("  |  ")[0], match_id=self.series.get().strip(),
+                          evidence_retention="full" if self.retain_evidence.get() else "lean")
             self._save(); self.refresh_queue(); self.tabs.select(self.queue_tab)
             self.queue_tree.selection_set(job["id"])
             self.queue_tree.see(job["id"])

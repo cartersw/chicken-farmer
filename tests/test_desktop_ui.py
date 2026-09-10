@@ -96,6 +96,7 @@ def test_full_demo_requires_named_player_and_persists_decided_format(ui, monkeyp
     queued = full_demo.load_queue(ui.queue_path())["jobs"]
     assert len(queued) == 1 and queued[0]["demo"] == str(demo.resolve())
     assert queued[0]["format"] == full_demo.FORMAT
+    assert queued[0]["evidence_retention"] == "lean" and ui.retain_evidence.get() is False
     assert ui.tabs.select() == str(ui.queue_tab)
     calls = []
     ui.validation_workers.set("3")
@@ -112,6 +113,18 @@ def test_full_demo_requires_named_player_and_persists_decided_format(ui, monkeyp
     assert backend.read_object(ui.settings_path)["validation_workers"] == "3"
     ui.refresh_queue()
     assert len(ui.queue_tree.get_children()) == 1
+
+
+def test_debug_evidence_setting_is_saved_and_applies_to_new_queue_entries(ui):
+    from cs2_data import full_demo
+    populate(ui)
+    ui.players = {"Ckanic": "76561198323592528"}
+    ui.player.set("Ckanic")
+    ui.retain_evidence.set(True)
+    ui.enqueue_demo()
+    assert not ui.test_errors
+    assert full_demo.load_queue(ui.queue_path())["jobs"][0]["evidence_retention"] == "full"
+    assert backend.read_object(ui.settings_path)["retain_evidence"] is True
 
 
 def test_status_and_stop_stay_visible_at_minimum_window_size(ui):

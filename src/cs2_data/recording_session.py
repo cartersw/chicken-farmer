@@ -10,7 +10,7 @@ import uuid
 from . import competitive_batch as batch
 from .io import read_json, sha256_file
 from .launcher_backend import PROJECT, save_settings
-from .training_archive import FORMAT
+from .training_archive import FORMAT, retention_mode
 
 from .session_profile import PROFILE, PLUGIN_SHA256, require
 
@@ -21,6 +21,7 @@ BRIDGE_TICKS = 256
 
 def plan_session(plan, segments=None):
     require(plan.get("format") == FORMAT, "Recording session requires the decided RGB8 format")
+    mode = retention_mode(plan.get("evidence_retention", "full"))
     segments = plan["segments"] if segments is None else segments
     require(segments and len(segments) <= 4096, "Recording session needs 1-4096 logical shards")
     runs = []
@@ -58,13 +59,13 @@ def plan_session(plan, segments=None):
     # Conservative initial allowance, refined only after measuring real sessions.
     log_bytes = int(replay_seconds*12_000_000)+512_000_000
     staging_bytes = Path(plan["source"]["demo"]).stat().st_size
-    # Budget the period where raw evidence, the index and its verified archive
-    # coexist. Do not assume a favorable compression ratio to admit a session.
+    # Budget raw evidence, the index, training output and the optional debug
+    # archive together. Do not assume favorable compression to admit a session.
     index_bytes = log_bytes+512_000_000
-    archive_bytes = raw_bytes+log_bytes+index_bytes+512_000_000
+    archive_bytes = raw_bytes+log_bytes+index_bytes+512_000_000 if mode == "full" else 0
     training_bytes = nominal*FORMAT["frame_bytes"]+2_000_000_000
     return {"schema_version": 1, "profile": PROFILE, "demo_id": plan["source"]["demo_id"],
-            "steam_id": str(plan["source"]["steam_id"]), "format": FORMAT, "runs": runs,
+            "steam_id": str(plan["source"]["steam_id"]), "format": FORMAT, "runs": runs, "evidence_retention": mode,
             "logical_segments": len(segments), "max_frames": nominal,
             "storage": {"raw_frame_bytes": raw_bytes, "max_log_bytes": log_bytes,
                 "max_index_bytes": index_bytes, "max_shared_archive_bytes": archive_bytes,
@@ -250,8 +251,9 @@ def prepare_recordings(root, plan, progress, tools, *, stop, emit, max_segments=
         if str(out) not in prepared:
             persist("indexing_session", "All recording finished; checking shared native timing and frame coverage")
             index = index_session(out, emit=emit)
-            persist("archiving_session", "Compressing the shared recording evidence once for this session")
-            receipt = pack_session(index, root/"session-packages"/out.name, emit=emit)
+            mode = retention_mode(plan.get("evidence_retention", "full"))
+            persist("archiving_session", "Compressing shared debug evidence" if mode == "full" else "Saving the session receipt; temporary evidence stays until training packages are verified")
+            receipt = pack_session(index, root/"session-packages"/out.name, emit=emit, evidence_retention=mode)
             prepared[str(out)] = (index, receipt)
         index, receipt = prepared[str(out)]
         jobs[segment["id"]] = {"root": str(root), "segment": segment, "index": index, "receipt": str(receipt)}

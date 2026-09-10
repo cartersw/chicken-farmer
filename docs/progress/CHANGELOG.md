@@ -2,6 +2,21 @@
 
 Record delivered work here in date order, newest first. Keep historical results intact; [STATUS.md](STATUS.md) describes the current state and [NEXT_STEPS.md](NEXT_STEPS.md) tracks unfinished work.
 
+## 2026-09-10 - Default to lean full-demo evidence retention
+
+New full-demo plans skip shared and per-segment evidence ZIPs. Verified RGB
+training shards keep accepted samples, targets/masks, source hashes and compact
+acceptance summaries; durable session receipts support resume and cleanup.
+Native frames, logs and indexes remain until every dependent shard is verified
+and published. Full evidence retention is an explicit Settings/CLI debug option.
+Existing plans and archives keep their original policy; no saved outputs were
+deleted. Disk estimates exclude shared evidence archive space for lean plans.
+
+All 2,238 regression tests and 38 launcher smoke tests passed. Training ZIP
+contents match between lean/full modes, corruption prevents deletion, interrupted
+cleanup resumes, and a real existing RGB shard remains readable. Preview encoding
+and acceptance checks are unchanged; no new game capture was performed.
+
 ## 2026-09-08 - Decide the RGB trainer baseline
 
 The user confirmed **640x360, full-color RGB, 8 bits per channel, eight consecutive

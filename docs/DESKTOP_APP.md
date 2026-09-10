@@ -55,7 +55,7 @@ refreshes the saved batch status.
 ## Capture and output
 
 One CS2 session records all eligible intervals for the selected player before
-parallel validation begins. Shared evidence is compressed, and validation workers
+parallel validation begins. Shared evidence is indexed, and validation workers
 prepare lossless training shards. Normal alive progression and combat are both
 included. Setup/warmup, freeze time, pauses, dead time and unsupported source
 intervals are excluded, with reasons recorded in the coverage report.
@@ -67,8 +67,14 @@ requires no manual advance or routine HUD review. See
 
 The queue lives at `<Output>/full-demo-queue/queue.json`. Each demo has reports
 and progress under `jobs/<id>/`. Completed segments retain `training.zip` and
-`evidence.zip`; `session-packages` holds shared original frames and timing logs.
-Temporary capture work is released only after archive verification. Retain the
+`receipt.json`; `session-packages` holds compact session receipts in lean mode.
+New plans default to lean retention: training archives and compact receipts are
+kept, while temporary validation evidence is released after all dependent segments
+are verified and packaged. **Keep full debug evidence** in Settings opts newly
+queued demos into retaining the original frames, native logs and evidence ZIPs.
+Existing plans keep their saved policy; changing the setting does not delete or
+convert existing output. Temporary capture work is released only after archive
+verification. Retain the
 source demo and parsed tables alongside the output packages.
 
 **Stop** requests a graceful stop. During recording, it finishes the current

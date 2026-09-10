@@ -15,6 +15,7 @@ from .io import read_json, sha256_file
 from .launcher_backend import save_settings
 from .session_evidence import index_session, make_view, events, verify_index
 from .session_profile import PROFILE, require
+from .training_archive import package_artifacts, retention_mode
 
 
 def index_files(index):
@@ -64,9 +65,10 @@ def shared_data_files(root):
         receipt_path = root/"session-packages"/out.name/"receipt.json"
         if receipt_path.exists():
             receipt = read_json(receipt_path)
-            archive_path = Path(receipt["archive"]["path"]).resolve()
-            require(archive_path.is_relative_to((root/"session-packages").resolve()), "Shared archive escaped its queue")
-            files[str(archive_path)] = receipt["archive"]["sha256"]
+            if receipt.get("evidence_retention", "full") == "full":
+                archive_path = Path(receipt["archive"]["path"]).resolve()
+                require(archive_path.is_relative_to((root/"session-packages").resolve()), "Shared archive escaped its queue")
+                files[str(archive_path)] = receipt["archive"]["sha256"]
     return files
 
 
@@ -106,24 +108,65 @@ def collect_frames(index, *, emit=None):
 
 
 def verify_archive(receipt):
-    require(receipt.get("profile") == PROFILE and receipt.get("status") == "compressed", "Unsupported shared session archive")
-    item = receipt["archive"]
-    require(sha256_file(Path(item["path"])) == item["sha256"], "Shared recording archive changed")
+    mode = retention_mode(receipt.get("evidence_retention", "full"))
+    require(receipt.get("profile") == PROFILE, "Unsupported shared session archive")
+    if mode == "full":
+        require(receipt.get("status") == "compressed", "Unsupported shared session archive")
+        item = receipt["archive"]
+        require(sha256_file(Path(item["path"])) == item["sha256"], "Shared recording archive changed")
+    else:
+        require(receipt.get("schema_version") == 2 and receipt.get("status") == "indexed" and
+                "archive" not in receipt and receipt["session_index"]["root"] == receipt["original_root"],
+                "Unsupported lean session receipt")
     return receipt
 
 
-def pack_session(index, destination, *, emit=None):
-    """Archive native frames and process evidence once, before shard validation."""
+def live_session_frames(receipt):
+    """Verify temporary inputs while packaging; completed lean receipts stand alone."""
+    index = receipt["session_index"]
+    root = Path(receipt["original_root"])
+    require(sha256_file(root/"session-index.json") == receipt["session_index_sha256"] and
+            read_json(root/"session-index.json") == index, "Shared session index changed")
+    verify_index(index)
+    require(read_json(Path(index["schedule"])) == receipt["session_plan"], "Shared session schedule changed")
+    require(sha256_file(root/"session-frames.json") == receipt["session_frames_sha256"], "Shared frame inventory changed")
+    result = {}
+    for frame in read_json(root/"session-frames.json").values():
+        path = Path(frame["path"])
+        require(not path.is_symlink() and path.resolve().is_relative_to(root.resolve()), "Shared frame escaped its session")
+        result[path.relative_to(root).as_posix()] = frame
+    return result
+
+
+def pack_session(index, destination, *, emit=None, evidence_retention="lean"):
+    """Publish a compact session receipt, or a complete archive in debug mode."""
+    mode = retention_mode(evidence_retention)
     destination = Path(destination)
     receipt_path = destination/"receipt.json"
     if receipt_path.exists():
         receipt = verify_archive(read_json(receipt_path))
+        require(receipt.get("evidence_retention", "full") == mode, "Saved session retention differs from its plan")
         require(receipt["session_index_sha256"] == sha256_file(Path(index["root"])/"session-index.json"), "Archive belongs to another session index")
+        if mode == "lean":
+            live_session_frames(receipt)
         return receipt_path
     verify_index(index)
     collect_frames(index, emit=emit)
     destination.mkdir(parents=True, exist_ok=True)
     root = Path(index["root"])
+    if mode == "lean":
+        render = read_json(Path(index["render_manifest"]))
+        digest = sha256_file(root/"input.dem")
+        require(digest == render["demo_id"], "Shared session demo bytes changed")
+        source = render["source_job"].get("demo_path", render["source_job"].get("demo_uri"))
+        require(isinstance(source, str) and sha256_file(Path(source)) == digest, "Original demo changed")
+        save_settings(receipt_path, {"schema_version": 2, "profile": PROFILE, "status": "indexed",
+            "evidence_retention": mode, "original_root": str(root), "session_index": index,
+            "session_plan": read_json(Path(index["schedule"])),
+            "session_index_sha256": sha256_file(root/"session-index.json"),
+            "session_frames_sha256": sha256_file(root/"session-frames.json"),
+            "shared_sources": {"input.dem": {"path": source, "sha256": digest}}, "compressed_bytes": 0})
+        return receipt_path
     archive_path = destination/("evidence-"+uuid.uuid4().hex[:12]+".zip")
     storage = read_json(Path(index["schedule"])).get("storage", {})
     members, shared = {}, {}
@@ -164,7 +207,7 @@ def pack_session(index, destination, *, emit=None):
         if emit:
             emit("Checking the shared archive compression round trip")
         require(archive.testzip() is None, "Shared session archive failed its compression round trip")
-    save_settings(receipt_path, {"profile": PROFILE, "status": "compressed", "original_root": str(root),
+    save_settings(receipt_path, {"profile": PROFILE, "status": "compressed", "evidence_retention": mode, "original_root": str(root),
         "session_index_sha256": sha256_file(root/"session-index.json"),
         "archive": {"path": str(archive_path.resolve()), "sha256": sha256_file(archive_path)},
         "shared_sources": shared, "compressed_bytes": archive_path.stat().st_size})
@@ -250,19 +293,31 @@ def release_completed_sessions(root, progress):
             continue
         receipt = verify_archive(read_json(receipt_path))
         require(receipt["original_root"] == str(out), "Shared archive belongs to another session")
-        with zipfile.ZipFile(receipt["archive"]["path"]) as archive:
-            index = json.loads(archive.read("session-index.json"))
-            schedule = json.loads(archive.read("session-plan.json"))
+        mode = receipt.get("evidence_retention", "full")
+        if mode == "full":
+            with zipfile.ZipFile(receipt["archive"]["path"]) as archive:
+                index = json.loads(archive.read("session-index.json"))
+                schedule = json.loads(archive.read("session-plan.json"))
+        else:
+            index, schedule = receipt["session_index"], receipt["session_plan"]
         keys = [key for run in schedule["runs"] if run["id"] in index["closed_runs"] for key in run["segments"]]
+        require(keys, "Session has no dependent training segments")
         if not all(progress["segments"].get(key, {}).get("status") == "complete" for key in keys):
             continue
         for key in keys:
             record = progress["segments"][key]
+            require(Path(record["receipt"]).resolve().is_relative_to((root/"packages").resolve()),
+                    "Segment receipt escaped its queue")
             require(sha256_file(Path(record["receipt"])) == record["receipt_sha256"], "Segment receipt changed before session cleanup")
             package = read_json(Path(record["receipt"]))
-            require(package["shared_session"]["receipt_sha256"] == sha256_file(receipt_path), "Segment has another session archive")
-            for name in ("training_archive", "evidence_archive"):
-                require(sha256_file(Path(package[name]["path"])) == package[name]["sha256"], "Segment archive changed before shared cleanup")
+            require(package.get("status") == "complete" and package.get("segment_id") == key and
+                    Path(package["shared_session"]["receipt"]).resolve() == receipt_path.resolve() and
+                    package["shared_session"]["receipt_sha256"] == sha256_file(receipt_path), "Segment has another session archive")
+            require(package.get("evidence_retention", "full") == mode, "Segment and session retention differ")
+            for name in package_artifacts(package):
+                artifact = Path(package[name]["path"]).resolve()
+                require(artifact.is_relative_to((root/"packages").resolve()) and not artifact.is_relative_to(out) and
+                        sha256_file(artifact) == package[name]["sha256"], "Segment archive changed before shared cleanup")
         for source in receipt["shared_sources"].values():
             require(sha256_file(Path(source["path"])) == source["sha256"], "Original demo changed before shared cleanup")
         if out.exists():
